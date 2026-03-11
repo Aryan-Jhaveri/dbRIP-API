@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Project-specific
+*.sqlite
+NOTEBOOK/
+
+# Environment
+.env
+
+
+## CLAUDE
+CLAUDE.md
