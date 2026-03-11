@@ -3,6 +3,26 @@
 The core API is working: ingest pipeline, database, 7 endpoints, 39 tests.
 Below are the next things to build, roughly in priority order.
 
+
+## Other To-Do
+- [ ] Add Predefined values to exports? https://fastapi.tiangolo.com/tutorial/path-params/#predefined-values, so vcf, bed calls are restrcited to certain output types. Also look inot adding predefined values to other dropdowns for API
+
+- [ ] Look into enums for plus minus strand, to format them as
+
+class Strand(str, Enum):
+    plus = "+"
+    minus = "-"
+
+# If you need to send "+" to a different tool:
+raw_strand = Strand.plus.value  # Returns "+"
+
+if necessary
+
+- [ ] For error handling in query parameters, need fall backs or docs for,
+Question: if the user doesn't enter `?` or doesnt enter relevant paramenters after `?`, how do different calls handle this gracefully? Do the calls tell what the default fallbacks are, do they need to be removed. 
+
+
+
 ---
 
 ## 1. MCP Server — Let Claude Query the Database
