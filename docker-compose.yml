@@ -1,0 +1,61 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Docker Compose — run the dbRIP API with PostgreSQL
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# This is the production-grade setup with PostgreSQL instead of SQLite.
+# Use this when you need:
+#   - Multiple concurrent users
+#   - Data persistence across container restarts
+#   - Full-text search or advanced SQL features
+#
+# For simple/local use, the Dockerfile alone (with SQLite) is enough.
+#
+# USAGE:
+#   docker-compose up
+#
+#   # Then load data (first time only):
+#   docker-compose exec api python scripts/ingest.py \
+#       --manifest data/manifests/dbrip_v1.yaml \
+#       --db postgresql://dbrip:dbrip@db:5432/dbrip
+#
+#   # Open the docs:
+#   open http://localhost:8000/docs
+#
+# STOPPING:
+#   docker-compose down           # stop containers, keep data
+#   docker-compose down -v        # stop containers AND delete data
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL database ──────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dbrip
+      POSTGRES_USER: dbrip
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dbrip}  # override with .env file in production
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-ONLY", "pg_isready", "-U", "dbrip"]
+      interval: 5s
+      retries: 5
+
+  # ── FastAPI server ───────────────────────────────────────────────────────
+  api:
+    build: .
+    environment:
+      DATABASE_URL: "postgresql://dbrip:${DB_PASSWORD:-dbrip}@db:5432/dbrip"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data/ so scripts/ingest.py can read CSVs from outside the container
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    # Override the CMD to not bake SQLite — we use PostgreSQL here
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+volumes:
+  pgdata:

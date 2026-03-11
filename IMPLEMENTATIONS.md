@@ -211,8 +211,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ## 7. Enrichment / Annotation Extensions
 
-**What:** Add biological context to insertions — gene names, OMIM disease links,
-GTEx expression data, Evo2 conservation scores.
+**What:** Add biological context to insertions — gene names, OMIM disease links.
 
 **Where:** Extension tables in the database (already sketched in the API design doc):
 ```sql
