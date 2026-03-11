@@ -65,6 +65,18 @@ export interface ListInsertionsParams {
   population?: string | null;
   min_freq?: number | null;
   max_freq?: number | null;
+  /**
+   * Strand filter. Accepts a single value ("+", "-", "null") or a
+   * comma-separated list for multi-select ("+,-"). The API translates
+   * "null" to a SQL IS NULL check, so it correctly matches missing strands.
+   */
+  strand?: string | null;
+  /**
+   * Chromosome filter. Accepts a single value ("chr1") or a comma-separated
+   * list for multi-select ("chr1,chr2,chrX"). The API uses a SQL IN clause
+   * when multiple values are provided.
+   */
+  chrom?: string | null;
   limit?: number;
   offset?: number;
 }

@@ -108,4 +108,43 @@ describe("BatchSearch", () => {
     fireEvent.click(checkbox);
     expect(checkbox).toBeChecked();
   });
+
+  it("strand checkboxes are checked/unchecked correctly", () => {
+    renderWithProviders(<BatchSearch />);
+    const positive = screen.getByLabelText("Positive");
+    const negative = screen.getByLabelText("Negative");
+
+    // Initially unchecked
+    expect(positive).not.toBeChecked();
+    expect(negative).not.toBeChecked();
+
+    // Check Positive
+    fireEvent.click(positive);
+    expect(positive).toBeChecked();
+    expect(negative).not.toBeChecked();
+
+    // Check Negative too — both can be checked simultaneously
+    fireEvent.click(negative);
+    expect(positive).toBeChecked();
+    expect(negative).toBeChecked();
+  });
+
+  it("chromosome multi-select renders all options", () => {
+    renderWithProviders(<BatchSearch />);
+    expect(screen.getByText("Chr1")).toBeInTheDocument();
+    expect(screen.getByText("ChrX")).toBeInTheDocument();
+    expect(screen.getByText("ChrY")).toBeInTheDocument();
+  });
+
+  it("useInsertions is called with strand param when strand checkbox is checked", () => {
+    const mockUseInsertions = vi.mocked(useInsertions);
+    renderWithProviders(<BatchSearch />);
+
+    // Check Positive strand — should trigger a re-render with strand="+" in params
+    fireEvent.click(screen.getByLabelText("Positive"));
+
+    // The most recent call to useInsertions should include strand="+"
+    const lastCall = mockUseInsertions.mock.calls.at(-1)?.[0];
+    expect(lastCall).toMatchObject({ strand: "+" });
+  });
 });

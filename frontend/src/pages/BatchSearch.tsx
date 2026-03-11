@@ -147,15 +147,22 @@ export default function BatchSearch() {
   const [chromosomes, setChromosomes] = useState<Set<string>>(new Set());
 
   // ── Build API params from selected filters ───────────────────────────
-  // The API currently takes single values, so we use the first selected.
-  // TODO: Update API to support multi-value params (e.g. me_type=ALU,SVA)
+  // Category/family/annotation: the API takes single values, so we only
+  // apply them when exactly one option is checked. Strand and chrom support
+  // comma-separated multi-values (e.g. strand="+,-", chrom="chr1,chr2").
+  //
+  // WHY limit=1? We only need the total count, not the actual rows. The API
+  // always returns the total regardless of limit. Fetching 1 row is cheaper
+  // than fetching 50 just to read the count field.
   const params: ListInsertionsParams = useMemo(() => {
     const p: ListInsertionsParams = { limit: 1, offset: 0 };
     if (categories.size === 1) p.me_category = [...categories][0];
     if (meFamilies.size === 1) p.me_type = [...meFamilies][0];
     if (annotations.size === 1) p.annotation = [...annotations][0];
+    if (strands.size > 0) p.strand = [...strands].join(",");
+    if (chromosomes.size > 0) p.chrom = [...chromosomes].join(",");
     return p;
-  }, [categories, meFamilies, annotations]);
+  }, [categories, meFamilies, annotations, strands, chromosomes]);
 
   // ── Check if any filter is selected ──────────────────────────────────
   const hasFilters =
@@ -171,10 +178,16 @@ export default function BatchSearch() {
   const { data, isLoading } = useInsertions(hasFilters ? params : { limit: 1, offset: 0 });
 
   // ── Build export URL with current filters ────────────────────────────
+  // The export URL must include all active filters so the downloaded CSV
+  // matches what the count display shows. Strand and chrom are passed as
+  // comma-separated strings — the API's export endpoint accepts the same
+  // multi-value format as the list endpoint.
   const exportParams: ListInsertionsParams = {};
   if (categories.size === 1) exportParams.me_category = [...categories][0];
   if (meFamilies.size === 1) exportParams.me_type = [...meFamilies][0];
   if (annotations.size === 1) exportParams.annotation = [...annotations][0];
+  if (strands.size > 0) exportParams.strand = [...strands].join(",");
+  if (chromosomes.size > 0) exportParams.chrom = [...chromosomes].join(",");
   const exportUrl = buildExportUrl("csv", exportParams);
 
   return (
