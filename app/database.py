@@ -34,15 +34,26 @@ SWITCHING TO POSTGRESQL:
 
 import os
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 # ── Configuration ────────────────────────────────────────────────────────
 
+# Absolute path to the project root (the directory that contains app/).
+# Using __file__ (this file's path) and going two levels up gives us a stable
+# anchor regardless of which directory the server is started from.
+#
+# Without this, "sqlite:///dbrip.sqlite" is a RELATIVE path — if uvicorn is
+# launched from frontend/ or any subdirectory, SQLite creates an empty
+# dbrip.sqlite there instead of finding the real one at the project root.
+_PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+_DEFAULT_DB = f"sqlite:///{_PROJECT_ROOT / 'dbrip.sqlite'}"
+
 # Default: SQLite file in the project root (created by scripts/ingest.py)
 # Override: set DATABASE_URL env var for PostgreSQL in production
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///dbrip.sqlite")
+DATABASE_URL = os.environ.get("DATABASE_URL", _DEFAULT_DB)
 
 # ── Engine ───────────────────────────────────────────────────────────────
 
