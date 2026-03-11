@@ -19,7 +19,7 @@
  */
 
 import { useState } from "react";
-import InteractiveSearch from "./pages/InteractiveSearch";
+/* import InteractiveSearch from "./pages/InteractiveSearch";*/
 import InteractiveSearch from "./pages/InteractiveSearch";
 
 /**

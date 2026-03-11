@@ -6,25 +6,21 @@
  *   - The title and all three tab buttons appear
  *   - Clicking a tab switches the visible content
  *
- * HOW TESTING WORKS:
- *   We use Vitest (test runner) + React Testing Library (renders components
- *   and simulates user interactions). Tests run in jsdom, a simulated browser
- *   environment — no real browser needed.
- *
- *   render(<App />) mounts the component into jsdom.
- *   screen.getByText("...") finds elements by their visible text.
- *   fireEvent.click() simulates a user clicking a button.
+ * NOTE: The Interactive Search tab renders the real InteractiveSearch component,
+ * which uses the useInsertions hook. We mock that hook here so App tests don't
+ * need a running API server.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import { useInsertions } from "./hooks/useInsertions";
 
-/**
- * Helper: wraps a component in QueryClientProvider so TanStack Query works.
- * Every component that uses useQuery() needs this wrapper in tests.
- */
+// Mock useInsertions so the InteractiveSearch page doesn't make real API calls
+vi.mock("./hooks/useInsertions");
+
+/** Helper: wraps a component in QueryClientProvider. */
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -35,6 +31,14 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("App", () => {
+  // Set up the mock before each test
+  beforeEach(() => {
+    vi.mocked(useInsertions).mockReturnValue({
+      data: { total: 0, limit: 50, offset: 0, results: [] },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useInsertions>);
+  });
+
   it("renders the title", () => {
     renderWithProviders(<App />);
     expect(
@@ -51,7 +55,8 @@ describe("App", () => {
 
   it("shows Interactive Search content by default", () => {
     renderWithProviders(<App />);
-    expect(screen.getByText(/server-side paginated data table/i)).toBeInTheDocument();
+    // The InteractiveSearch page renders a search bar
+    expect(screen.getByPlaceholderText(/regex, case-insensitive/i)).toBeInTheDocument();
   });
 
   it("switches to File Search tab when clicked", () => {
