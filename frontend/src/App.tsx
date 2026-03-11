@@ -19,6 +19,8 @@
  */
 
 import { useState } from "react";
+import InteractiveSearch from "./pages/InteractiveSearch";
+import InteractiveSearch from "./pages/InteractiveSearch";
 
 /**
  * Tab identifiers — used to track which tab is currently active.
@@ -70,12 +72,7 @@ export default function App() {
 
       {/* ── Tab content ────────────────────────────────────────────────── */}
       <div className="border border-t-0 border-black p-4">
-        {activeTab === "interactive" && (
-          <p className="text-sm">
-            Interactive Search — server-side paginated data table with regex
-            search and column filters. (Component coming next.)
-          </p>
-        )}
+        {activeTab === "interactive" && <InteractiveSearch />}
         {activeTab === "file" && (
           <p className="text-sm">
             File Search — upload a BED/CSV/TSV file to find matching entries.
