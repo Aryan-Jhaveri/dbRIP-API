@@ -10,7 +10,10 @@ are preserved exactly as they appear in the CSV.
 
 HOW IT WORKS:
     1. load_raw()           → pd.read_csv with index_col=0 to skip the unnamed
-                               row-number column that R adds when exporting.
+                               row-number column that R adds when exporting. 
+                               NOTE: Don't forget index_col=0 — IF applicable for the CSV you're loading,
+                               otherwise the first column will be called "id" and will mess up the rest of the pipeline!
+
     2. normalize(df)        → Renames columns using the manifest's column_map
                                (e.g. "Chromosome" → "chrom"). Casts start/end
                                to integers and me_length to nullable int.

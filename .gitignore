@@ -27,3 +27,7 @@ NOTEBOOK/
 
 ## CLAUDE
 CLAUDE.md
+
+dbri*{shm,wal,sqlite}
+
+

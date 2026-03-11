@@ -1,0 +1,41 @@
+# MkDocs configuration for the dbRIP API documentation site.
+#
+# To build and serve locally:
+#   pip install mkdocs-material
+#   mkdocs serve              ← live preview at http://localhost:8001
+#   mkdocs build              ← generates static site in site/
+#
+# To deploy to GitHub Pages:
+#   mkdocs gh-deploy
+
+site_name: dbRIP API
+site_description: Read-only API for the dbRIP database of retrotransposon insertion polymorphisms
+repo_url: https://github.com/liang-lab/dbRIP-API
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: amber
+  features:
+    - content.code.copy        # Copy button on code blocks
+    - navigation.sections      # Collapsible sections in sidebar
+    - navigation.top           # Back-to-top button
+    - search.suggest           # Search autocomplete
+
+nav:
+  - Home: index.md
+  - API Reference: api-reference.md
+  - CLI Tool: cli.md
+  - Biology Background: biology.md
+
+markdown_extensions:
+  - pymdownx.highlight:         # Syntax highlighting in code blocks
+      anchor_linenums: true
+  - pymdownx.superfences        # Fenced code blocks
+  - admonition                  # Note/warning/tip callout boxes
+  - pymdownx.details            # Collapsible sections
+  - tables                      # Markdown tables
+  - toc:
+      permalink: true           # Anchor links on headings
