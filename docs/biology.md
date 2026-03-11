@@ -2,6 +2,8 @@
 
 This page explains the biology behind the data for lab members who are new to transposable elements. If you already know what TEs are, skip to the [API Reference](api-reference.md).
 
+The file is in reference to the GRCh38/hg38 human genome sample, and not T2T-CHM13 v2.0/hs1 human genome sample (higher quality).
+
 ## What Are Transposable Elements?
 
 **Transposable elements (TEs)**, also called **"jumping genes"**, are DNA sequences that can copy themselves and insert into new locations in the genome. They make up nearly half of the human genome.

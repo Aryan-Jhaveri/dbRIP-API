@@ -1,6 +1,6 @@
 # Next Steps — What to Build on Top of the API
 
-The core API is working: ingest pipeline, database, 7 endpoints, 39 tests.
+The core API is working: ingest pipeline, database, 7 endpoints, 60 tests (13 ingest + 26 API + 21 CLI).
 Below are the next things to build, roughly in priority order.
 
 
@@ -84,67 +84,48 @@ def get_stats(by: str = "me_type") -> dict:
 
 ---
 
-## 2. CLI Tool — `dbrip` Command
+## 2. CLI Tool — `dbrip` Command — DONE
 
-**What:** A command-line tool so researchers can query the API from the terminal
-and pipe results into bedtools, awk, etc.
+**Status:** Complete. 5 commands (`search`, `get`, `export`, `stats`, `datasets`), 21 tests.
 
-**Where:** `cli/dbrip.py`
+**Files:** `cli/__init__.py`, `cli/dbrip.py`, `tests/test_cli.py`
 
-**Example usage:**
+**Stack:** Typer + httpx. Thin HTTP wrapper — talks to the running API, no direct DB access.
+
+**Features:**
+- Region shorthand: `chr1:1M-5M` → `chr1:1000000-5000000`
+- Output modes: `--output table` (rich tables) or `--output json` (pipe-friendly)
+- Export to stdout or file: `dbrip export --format bed -o out.bed`
+- Config via `DBRIP_API_URL` env var (default: `http://localhost:8000`)
+
+**Usage:**
 ```bash
-# Search a region, output as BED
-dbrip search -r chr1:1M-5M --me-type ALU --format bed
-
-# Get a single insertion
+dbrip search --region chr1:1M-5M --me-type ALU
 dbrip get A0000001
-
-# Export all LINE1 as VCF
 dbrip export --format vcf --me-type LINE1 -o l1.vcf
-
-# Stats
-dbrip stats --by population
-
-# Pipe into bedtools
-dbrip search -r chr7:1M-50M --format bed | bedtools intersect -a - -b peaks.bed
+dbrip stats --by me_type
+dbrip export --format bed | bedtools intersect -a - -b peaks.bed
 ```
-
-**Stack:** [Typer](https://typer.tiangolo.com/) (CLI framework) + httpx (HTTP client).
-
-**Configuration:** API base URL from `DBRIP_API_URL` env var or `~/.dbrip/config.toml`.
-
-**Distribution:** Add a `[project.scripts]` entry in `pyproject.toml`:
-```toml
-[project.scripts]
-dbrip = "cli.dbrip:app"
-```
-
-Then `pip install -e .` makes `dbrip` available as a command.
-
-**Effort:** Medium — needs argument parsing, output formatting, error handling.
 
 ---
 
-## 3. Documentation Site
+## 3. Documentation Site — DONE
 
-**What:** Hosted API documentation beyond the auto-generated `/docs`.
+**Status:** Complete. MkDocs Material site with 4 pages.
 
-**Options:**
+**Files:** `mkdocs.yml`, `docs/index.md`, `docs/api-reference.md`, `docs/cli.md`, `docs/biology.md`
 
-### Option A: Use FastAPI's built-in docs (already done)
-- `/docs` — Swagger UI (interactive, try-it-out)
-- `/redoc` — ReDoc (cleaner, read-only)
-- These are generated automatically from the endpoint definitions. Zero extra work.
+**What's covered:**
+- `index.md` — landing page, links to README for setup
+- `api-reference.md` — all endpoints with curl examples and sample JSON responses
+- `cli.md` — full CLI usage with piping/scripting examples
+- `biology.md` — TE families, populations, variant classes, coordinates (for new lab members)
 
-### Option B: MkDocs site with examples
-- Write a `docs/` directory with Markdown files
-- Include example queries, biology context, population descriptions
-- Host on GitHub Pages or ReadTheDocs
-- Good for non-technical users who need context beyond "here's the API spec"
+**Built-in docs also available:**
+- `/docs` — Swagger UI (interactive)
+- `/redoc` — ReDoc (read-only)
 
-**Stack:** [MkDocs](https://www.mkdocs.org/) + [Material theme](https://squidfunnel.github.io/mkdocs-material/)
-
-**Effort:** Medium — the API docs already exist, this is about adding tutorials and context.
+**To serve locally:** `pip install mkdocs-material && mkdocs serve`
 
 ---
 
@@ -291,7 +272,7 @@ CREATE TABLE coordinates_liftover (
 |----------|------|-----|
 | 1 | Docker (SQLite-only) | Makes it deployable immediately |
 | 2 | MCP Server | High-value, low-effort — Claude can query real data |
-| 3 | CLI tool | Researchers use the terminal daily |
+| ~~3~~ | ~~CLI tool~~ | Done — 5 commands, 21 tests |
 | 4 | Additional datasets | Multiplies the value of everything above |
 | 5 | Web frontend | Useful but big effort — FastAPI `/docs` works for now |
 | 6 | Enrichment | High scientific value but requires external data work |
