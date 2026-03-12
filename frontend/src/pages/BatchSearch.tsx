@@ -19,10 +19,11 @@
  *     - me_category (Reference | Non-reference)
  *     - me_type (ALU | LINE1 | SVA | HERVK | PP)
  *     - annotation (PROMOTER | INTRONIC | etc.)
- *   But it only takes ONE value per parameter. For multi-select (e.g. user
- *   checks both ALU and SVA), we'd need the API to support comma-separated
- *   values or repeated params. For now, we use the first selected value
- *   and note this as a TODO for API enhancement.
+ *     - population (1000 Genomes pop code) + min_freq (allele frequency threshold)
+ *   But it only takes ONE value per parameter for category/family/annotation.
+ *   For multi-select (e.g. user checks both ALU and SVA), we'd need the API to
+ *   support comma-separated values or repeated params. For now, we use the first
+ *   selected value and note this as a TODO for API enhancement.
  *
  * FILTER OPTIONS:
  *   All values match exactly what the Shiny app offers. The values (not labels)

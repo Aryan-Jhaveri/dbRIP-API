@@ -30,7 +30,7 @@ HOW THIS FILE CONNECTS TO THE REST OF THE PROJECT:
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -44,7 +44,7 @@ router = APIRouter(prefix="/v1", tags=["insertions"])
 
 def _apply_filters(query, me_type, me_subtype, me_category, variant_class,
                    annotation, dataset_id, population, min_freq, max_freq, db,
-                   strand=None, chrom=None):
+                   strand=None, chrom=None, search=None):
     """Apply optional filters to an insertions query.
 
     This is shared between the list endpoint and the region endpoint so
@@ -54,6 +54,13 @@ def _apply_filters(query, me_type, me_subtype, me_category, variant_class,
         Both accept comma-separated values, e.g. strand="+,-" or chrom="chr1,chr2".
         A single value uses an equality check (faster); multiple values use SQL IN.
         This lets the Batch Search frontend pass all selected checkboxes in one param.
+
+    SEARCH PARAM:
+        Free-text search across 8 text columns using SQL LIKE (case-insensitive via
+        ilike, which SQLAlchemy maps to LIKE in SQLite). Columns are OR'd together,
+        so a term like "ALU" matches any row where any of those fields contains "ALU".
+        This replaces the old client-side filterRowsByRegex approach, which could only
+        search the current page and produced incorrect pagination totals.
     """
     if me_type:
         query = query.filter(Insertion.me_type == me_type)
@@ -103,6 +110,25 @@ def _apply_filters(query, me_type, me_subtype, me_category, variant_class,
         if max_freq is not None:
             query = query.filter(PopFrequency.af <= max_freq)
 
+    # Full-text search across key text columns — server-side LIKE filter.
+    # We search 8 columns with OR logic: any match in any column returns the row.
+    # ilike() is case-insensitive LIKE; SQLite maps it to LIKE (case-insensitive
+    # for ASCII by default). The % wildcards match anything before/after the term.
+    if search:
+        term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Insertion.id.ilike(term),
+                Insertion.chrom.ilike(term),
+                Insertion.me_type.ilike(term),
+                Insertion.me_category.ilike(term),
+                Insertion.rip_type.ilike(term),
+                Insertion.me_subtype.ilike(term),
+                Insertion.annotation.ilike(term),
+                Insertion.variant_class.ilike(term),
+            )
+        )
+
     return query
 
 
@@ -121,6 +147,7 @@ def list_insertions(
     max_freq: float | None = None,
     strand: str | None = None,
     chrom: str | None = None,
+    search: str | None = None,
     limit: int = Query(default=50, le=1000, ge=1),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -133,11 +160,12 @@ def list_insertions(
         /v1/insertions?annotation=INTRONIC&me_type=LINE1
         /v1/insertions?strand=%2B            (+ must be URL-encoded)
         /v1/insertions?chrom=chr1,chr2,chrX  (comma-separated for multiple)
+        /v1/insertions?search=ALU            (free-text search across key columns)
     """
     query = db.query(Insertion)
     query = _apply_filters(query, me_type, me_subtype, me_category, variant_class,
                            annotation, dataset_id, population, min_freq, max_freq, db,
-                           strand=strand, chrom=chrom)
+                           strand=strand, chrom=chrom, search=search)
 
     total = query.count()
     results = query.order_by(Insertion.id).offset(offset).limit(limit).all()

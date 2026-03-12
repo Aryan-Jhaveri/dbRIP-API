@@ -4,7 +4,7 @@ The core API is working: ingest pipeline, database, 7 endpoints, 60 tests (13+ i
 Below are the next things to build, roughly in priority order.
 
 
-## Other To-Do
+## To-Do
 
 - [ ] Front end has no filters for the pop_freq table, for RIP filtered by pop samples. Need to add filters for that in Interactive Search, and Batch Search. 
 

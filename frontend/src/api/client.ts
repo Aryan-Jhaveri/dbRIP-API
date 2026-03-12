@@ -77,6 +77,13 @@ export interface ListInsertionsParams {
    * when multiple values are provided.
    */
   chrom?: string | null;
+  /**
+   * Free-text search across id, chrom, me_type, me_category, rip_type,
+   * me_subtype, annotation, and variant_class columns (server-side LIKE,
+   * case-insensitive). Replaces client-side filterRowsByRegex so pagination
+   * totals are accurate across all pages, not just the current page.
+   */
+  search?: string | null;
   limit?: number;
   offset?: number;
 }

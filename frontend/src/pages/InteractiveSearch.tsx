@@ -3,43 +3,29 @@
  *
  * WHAT THIS PAGE DOES:
  *   Replicates the Shiny app's "Interactive Search" tab:
- *     1. A global search bar (regex-capable, case-insensitive)
- *     2. A data table showing insertion results with server-side pagination
- *     3. A download button for exporting filtered results as CSV
+ *     1. A global search bar (server-side LIKE across 8 columns)
+ *     2. Population frequency dropdowns (population + min allele frequency)
+ *     3. A data table showing insertion results with server-side pagination
+ *     4. A download button for exporting filtered results as CSV
  *
- * HOW SEARCH WORKS (CLIENT-SIDE FILTERING):
- *   The search bar applies a regex filter across ALL columns of the currently
- *   loaded page of results. This matches how Shiny's DataTable works — the
- *   DataTable widget does client-side regex search on whatever rows are loaded.
+ * HOW SEARCH WORKS (SERVER-SIDE):
+ *   The search bar sends the typed term to the API as a "search" query param.
+ *   The API applies a LIKE filter across 8 columns (id, chrom, me_type,
+ *   me_category, rip_type, me_subtype, annotation, variant_class). This means:
+ *     - Pagination totals are always accurate (the DB counts matching rows)
+ *     - Searching "ALU" on page 3 shows exactly the ALU rows for that page
+ *     - No more empty pages mid-search (the old client-side bug)
  *
- *   Why client-side instead of server-side?
- *     - The API design spec doesn't include a "search"
- *       query param on GET /v1/insertions. Adding one would mean designing regex
- *       support in SQLAlchemy, which is a bigger architectural decision.
- *     - Client-side filtering on the current page is the simplest useful step.
- *       It covers the main use case: "I see a page of results, let me narrow
- *       them down by typing ALU or INTRONIC."
- *     - If we later need full-database search, we'd add a server-side param.
- *       That's a separate API design decision, not a frontend concern.
+ *   The debounce (300ms) prevents firing a new API request on every keystroke.
+ *   We reset to page 0 whenever the search changes so we don't end up on a
+ *   now-invalid page (e.g. searching narrows results to fewer pages).
  *
- *   How the regex works:
- *     - User types a pattern (e.g. "ALU|SVA" or "chr1")
- *     - We compile it as a case-insensitive RegExp
- *     - Every row is tested: we stringify each cell value and check if ANY
- *       cell in that row matches the regex
- *     - If the regex is invalid (e.g. unclosed bracket "["), we catch the
- *       error and show all rows — no crash, no error message. The user just
- *       sees unfiltered results while they're still typing.
- *
- *   The debounce (300ms) prevents re-filtering on every keystroke.
- *
- * PAGINATION + SEARCH INTERACTION:
- *   Server-side pagination is still in charge of which rows we fetch from the
- *   API. Client-side search only filters within those fetched rows. This means:
- *     - "Showing X of Y fetched (Z total)" reflects both levels
- *     - The DataTable receives filteredRows (not raw API results)
- *     - The total passed to DataTable is the server-side total (for page
- *       navigation), but the displayed row count may be less if search is active
+ * POPULATION FREQUENCY FILTERS:
+ *   Two dropdowns let users narrow results by population allele frequency:
+ *     - Population: one of the 33 1000 Genomes populations or 5 super-pops
+ *     - Min frequency: preset thresholds (any, ≥1%, ≥5%, ≥10%, ≥50%)
+ *   Both wire directly to the API's population/min_freq params. The API only
+ *   applies frequency filtering when a population is selected.
  *
  * HOW IT CONNECTS TO OTHER FILES:
  *   - useInsertions (hooks/useInsertions.ts) → fetches from FastAPI
@@ -47,7 +33,6 @@
  *   - listInsertions (api/client.ts) → the actual fetch call
  *   - InsertionSummary (types/insertion.ts) → TypeScript type for rows
  *   - buildExportUrl (api/client.ts) → builds the CSV download link
- *   - filterRowsByRegex (utils/filterRowsByRegex.ts) → client-side regex filter
  *
  * COLUMN DEFINITIONS:
  *   The columns array below defines every column in the table. Each column
@@ -64,12 +49,11 @@
  *   API endpoint that includes them.
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import DataTable from "../components/DataTable";
 import { useInsertions } from "../hooks/useInsertions";
 import { buildExportUrl } from "../api/client";
-import { filterRowsByRegex } from "../utils/filterRowsByRegex";
 import type { InsertionSummary } from "../types/insertion";
 
 // ── Column definitions ──────────────────────────────────────────────────
@@ -92,6 +76,58 @@ const columns: ColumnDef<InsertionSummary, unknown>[] = [
   { accessorKey: "variant_class", header: "Variant Class" },
 ];
 
+// ── Population options ───────────────────────────────────────────────────
+// 5 super-populations + 26 sub-populations from the 1000 Genomes Project.
+// Values match the population codes stored in the pop_frequencies table.
+
+const POPULATIONS = [
+  // Super-populations
+  { value: "AFR", label: "AFR — African" },
+  { value: "AMR", label: "AMR — Ad Mixed American" },
+  { value: "EAS", label: "EAS — East Asian" },
+  { value: "EUR", label: "EUR — European" },
+  { value: "SAS", label: "SAS — South Asian" },
+  // Sub-populations
+  { value: "ACB", label: "ACB — African Caribbean in Barbados" },
+  { value: "ASW", label: "ASW — Americans of African Ancestry in SW USA" },
+  { value: "BEB", label: "BEB — Bengali in Bangladesh" },
+  { value: "CDX", label: "CDX — Chinese Dai in Xishuangbanna, China" },
+  { value: "CEU", label: "CEU — Utah Residents (CEPH) with Northern and Western European Ancestry" },
+  { value: "CHB", label: "CHB — Han Chinese in Beijing, China" },
+  { value: "CHS", label: "CHS — Southern Han Chinese" },
+  { value: "CLM", label: "CLM — Colombians in Medellin, Colombia" },
+  { value: "ESN", label: "ESN — Esan in Nigeria" },
+  { value: "FIN", label: "FIN — Finnish in Finland" },
+  { value: "GBR", label: "GBR — British in England and Scotland" },
+  { value: "GIH", label: "GIH — Gujarati Indian in Houston, TX" },
+  { value: "GWD", label: "GWD — Gambian in Western Division, The Gambia" },
+  { value: "IBS", label: "IBS — Iberian Populations in Spain" },
+  { value: "ITU", label: "ITU — Indian Telugu in the UK" },
+  { value: "JPT", label: "JPT — Japanese in Tokyo, Japan" },
+  { value: "KHV", label: "KHV — Kinh in Ho Chi Minh City, Vietnam" },
+  { value: "LWK", label: "LWK — Luhya in Webuye, Kenya" },
+  { value: "MSL", label: "MSL — Mende in Sierra Leone" },
+  { value: "MXL", label: "MXL — Mexican Ancestry in Los Angeles, CA" },
+  { value: "PEL", label: "PEL — Peruvians in Lima, Peru" },
+  { value: "PJL", label: "PJL — Punjabi in Lahore, Pakistan" },
+  { value: "PUR", label: "PUR — Puerto Ricans in Puerto Rico" },
+  { value: "STU", label: "STU — Sri Lankan Tamil in the UK" },
+  { value: "TSI", label: "TSI — Toscani in Italy" },
+  { value: "YRI", label: "YRI — Yoruba in Ibadan, Nigeria" },
+];
+
+// ── Min-frequency options ────────────────────────────────────────────────
+// Preset allele frequency thresholds. "" means "no filter" (show all).
+// Values are numbers that map directly to the API's min_freq param.
+
+const MIN_FREQ_OPTIONS = [
+  { value: "", label: "Any frequency" },
+  { value: "0.01", label: "≥ 1%" },
+  { value: "0.05", label: "≥ 5%" },
+  { value: "0.10", label: "≥ 10%" },
+  { value: "0.50", label: "≥ 50%" },
+];
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export default function InteractiveSearch() {
@@ -99,41 +135,40 @@ export default function InteractiveSearch() {
   // pageIndex: current page (0-based), controls which slice of data the API returns
   // pageSize: rows per page, sent as "limit" to the API
   // searchInput: what the user is typing (updates on every keystroke)
-  // searchQuery: the debounced value actually used for filtering
-  //   (we debounce so we're not running regex on every single keystroke)
+  // searchQuery: the debounced value actually sent to the API
+  //   (we debounce so we're not firing a new request on every single keystroke)
+  // population: selected 1000 Genomes population code (or "" for no filter)
+  // minFreq: selected minimum allele frequency threshold (or "" for no filter)
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [population, setPopulation] = useState("");
+  const [minFreq, setMinFreq] = useState("");
 
   // ── Debounce search ──────────────────────────────────────────────────
-  // Wait 300ms after the user stops typing before applying the filter.
-  // This prevents running the regex filter on every single keystroke,
-  // which matters when there are 50-1000 rows to scan.
+  // Wait 300ms after the user stops typing before sending the request.
+  // This prevents hammering the API on every keystroke.
+  // We also reset to page 0 so we don't land on a page that no longer exists
+  // (e.g. if search narrows 900 rows to 12, page 5 would be empty).
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearchQuery(searchInput);
+      setPageIndex(0);
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
   // ── Fetch data ───────────────────────────────────────────────────────
-  // Server-side pagination: the API returns `pageSize` rows starting at
-  // `pageIndex * pageSize`. Search/filtering happens client-side AFTER
-  // these rows arrive — the API knows nothing about the search bar.
+  // All filtering is server-side. We pass search, population, and min_freq
+  // directly as API params. The API handles LIKE matching and JOIN filtering.
   const { data, isLoading } = useInsertions({
     limit: pageSize,
     offset: pageIndex * pageSize,
+    search: searchQuery || null,
+    population: population || null,
+    min_freq: minFreq ? parseFloat(minFreq) : null,
   });
-
-  // ── Client-side filtering ────────────────────────────────────────────
-  // Apply the regex search to the current page of results.
-  // useMemo ensures we only re-filter when the data or search changes,
-  // not on every render (e.g. when pagination buttons re-render).
-  const filteredResults = useMemo(
-    () => filterRowsByRegex(data?.results ?? [], searchQuery),
-    [data?.results, searchQuery]
-  );
 
   // ── Pagination handler ───────────────────────────────────────────────
   // Called by DataTable when the user clicks Next/Previous or changes page size.
@@ -147,25 +182,27 @@ export default function InteractiveSearch() {
 
   // ── Export URL ───────────────────────────────────────────────────────
   // Build a download link for the current filters (CSV format).
-  // NOTE: This downloads ALL rows from the API (the export endpoint has
-  // no limit). Client-side search does NOT affect the download — the user
-  // gets the full dataset. This matches Shiny's behavior where the
-  // download button exports everything, not just filtered rows.
-  const exportUrl = buildExportUrl("csv");
+  // The export endpoint accepts the same query params as the list endpoint,
+  // so the downloaded CSV always matches what the table shows.
+  const exportUrl = buildExportUrl("csv", {
+    search: searchQuery || null,
+    population: population || null,
+    min_freq: minFreq ? parseFloat(minFreq) : null,
+  });
 
   return (
     <div>
       {/* ── Search bar ─────────────────────────────────────────────────── */}
-      <div className="mb-4 flex items-center gap-4">
+      <div className="mb-4 flex flex-wrap items-center gap-4">
         <label className="text-sm font-semibold">Search:</label>
         <input
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="e.g. ALU|SVA|INTRONIC (regex, case-insensitive)"
+          placeholder="e.g. ALU, INTRONIC, chr1 (case-insensitive)"
           className="border border-black px-2 py-1 text-sm flex-1 max-w-md"
         />
-        {searchQuery && (
+        {searchInput && (
           <button
             onClick={() => {
               setSearchInput("");
@@ -178,15 +215,46 @@ export default function InteractiveSearch() {
         )}
       </div>
 
-      {/* ── Search status ──────────────────────────────────────────────── */}
-      {/* Show how many rows matched the search out of how many were loaded.
-          Only visible when a search is active and data is loaded. */}
-      {searchQuery && data && !isLoading && (
-        <p className="text-xs mb-2">
-          Showing {filteredResults.length} of {data.results.length} rows on this
-          page matching &quot;{searchQuery}&quot;
-        </p>
-      )}
+      {/* ── Population frequency filters ────────────────────────────────── */}
+      {/* Two dropdowns: which population to filter by, and minimum frequency.
+          Min freq only applies when a population is selected (API ignores it
+          if population is absent). We show both dropdowns together so it's
+          clear they're related. */}
+      <div className="mb-4 flex flex-wrap items-center gap-4">
+        <label className="text-sm font-semibold">Population:</label>
+        <select
+          value={population}
+          onChange={(e) => {
+            setPopulation(e.target.value);
+            setPageIndex(0);
+          }}
+          className="border border-black px-2 py-1 text-sm"
+        >
+          <option value="">Any population</option>
+          {POPULATIONS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+
+        <label className="text-sm font-semibold">Min frequency:</label>
+        <select
+          value={minFreq}
+          onChange={(e) => {
+            setMinFreq(e.target.value);
+            setPageIndex(0);
+          }}
+          disabled={!population}
+          className="border border-black px-2 py-1 text-sm disabled:opacity-40"
+        >
+          {MIN_FREQ_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* ── Error display ──────────────────────────────────────────────── */}
       {!isLoading && !data && (
@@ -207,12 +275,12 @@ export default function InteractiveSearch() {
       </div>
 
       {/* ── Data table ─────────────────────────────────────────────────── */}
-      {/* We pass filteredResults (not raw data.results) so the table only
-          shows rows that match the search. The total is still the server-side
-          total so pagination navigation works correctly across all pages. */}
+      {/* data.results comes directly from the API — no client-side filtering.
+          data.total is the server-side count of matching rows, so pagination
+          is always accurate. */}
       <DataTable
         columns={columns}
-        data={filteredResults}
+        data={data?.results ?? []}
         total={data?.total ?? 0}
         pageIndex={pageIndex}
         pageSize={pageSize}
@@ -220,7 +288,7 @@ export default function InteractiveSearch() {
         isLoading={isLoading}
       />
 
-      
+
     </div>
   );
 }
