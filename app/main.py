@@ -23,8 +23,11 @@ WHAT IS MIDDLEWARE?
     hosted on a different URL).
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.routers import datasets, export, insertions, stats
 
@@ -69,3 +72,25 @@ def health():
     Useful for monitoring and container health checks (e.g. Docker HEALTHCHECK).
     """
     return {"status": "ok"}
+
+
+# ── Static frontend (production / Docker only) ────────────────────────────
+#
+# In production, the React app is compiled to a set of static HTML/JS/CSS files
+# by `npm run build` (see the Dockerfile). FastAPI serves them here.
+#
+# WHY AT THE BOTTOM?
+#   FastAPI processes route registrations in order. By mounting StaticFiles last,
+#   we guarantee that all /v1/* API routes take priority. StaticFiles acts as a
+#   catch-all: any request that doesn't match an API route (e.g. /, /search,
+#   /batch) is served index.html, which lets React Router handle navigation.
+#
+# WHY THE EXISTS CHECK?
+#   In local development (npm run dev + uvicorn --reload), app/static/ doesn't
+#   exist — the frontend runs on its own dev server (port 5173) and proxies /v1/*
+#   requests to FastAPI. The check prevents a startup crash during development.
+_STATIC_DIR = Path(__file__).parent / "static"
+if _STATIC_DIR.exists():
+    # html=True tells StaticFiles to serve index.html for any path it can't find,
+    # which is the standard behaviour needed for single-page apps (React Router).
+    app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="frontend")

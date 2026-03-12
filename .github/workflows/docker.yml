@@ -1,0 +1,106 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# .github/workflows/docker.yml — CI/CD pipeline
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# This workflow runs automatically on every push and pull request.
+#
+# WHAT IT DOES:
+#   1. test   — runs the full pytest suite (every push / every PR)
+#   2. docker — builds the Docker image and pushes it to the GitHub Container
+#               Registry (ghcr.io) when a commit lands on main
+#
+# GITHUB CONTAINER REGISTRY (ghcr.io):
+#   After the first successful push, the image will be available at:
+#     ghcr.io/<your-github-username>/<repo-name>:latest
+#   Anyone can pull it with:
+#     docker pull ghcr.io/<your-github-username>/dbrip-api:latest
+#     docker run -p 8000:8000 ghcr.io/<your-github-username>/dbrip-api:latest
+#
+#   The GITHUB_TOKEN secret is provided automatically — no setup needed.
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: CI / Docker Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Job 1: Run the test suite ─────────────────────────────────────────────
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          # Cache pip downloads between runs so repeated installs are fast
+          cache: "pip"
+
+      - name: Install dependencies (api + ingest + dev extras)
+        run: pip install -e ".[api,ingest,dev]"
+
+      - name: Run tests
+        # The tests create their own in-memory SQLite fixture — no ingest needed
+        run: pytest tests/ -v
+
+  # ── Job 2: Build and push Docker image ───────────────────────────────────
+  docker:
+    name: Docker build & push
+    runs-on: ubuntu-latest
+    needs: test  # Only run if tests pass
+
+    # Only push on commits to main — not on pull requests
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    permissions:
+      contents: read      # To checkout the code
+      packages: write     # To push to ghcr.io
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Log in to the GitHub Container Registry using the auto-provided token.
+      # No secrets to configure — GITHUB_TOKEN is injected automatically.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extract metadata (tags, labels) for the Docker image.
+      # This sets the image tag to:
+      #   ghcr.io/<owner>/<repo>:latest    (always)
+      #   ghcr.io/<owner>/<repo>:<sha>     (pinned to commit SHA)
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=,format=short
+
+      # Build the image and push it to ghcr.io.
+      # The multi-stage Dockerfile compiles the frontend and bakes the database,
+      # so this step is self-contained — no extra setup scripts needed.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache layers between builds to speed up repeated pushes.
+          # "gha" uses GitHub Actions cache storage (free, scoped to the repo).
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

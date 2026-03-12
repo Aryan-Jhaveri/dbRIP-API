@@ -1,0 +1,57 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# .dockerignore — files excluded from the Docker build context
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# The "build context" is everything Docker sends to the daemon when you run
+# "docker build". Excluding large/unnecessary directories here keeps the context
+# small and build times fast.
+#
+# Rule of thumb: exclude anything that isn't needed to build or run the image.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Python virtual environment — dependencies are installed fresh inside the image
+.venv/
+venv/
+
+# Python bytecode and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Node modules — npm ci installs these fresh inside the builder stage
+node_modules/
+frontend/node_modules/
+
+# Pre-built frontend output — rebuilt inside the image from source
+frontend/dist/
+
+# SQLite databases — rebuilt inside the image by the ingest step
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Git history — not needed in the image
+.git/
+.github/
+
+# Development / local config
+.env
+.env.*
+NOTEBOOK/
+
+# Test artifacts
+.pytest_cache/
+tests/
+coverage/
+.coverage
+
+# Documentation build output
+site/
+
+# IDE / OS files
+.vscode/
+.idea/
+.DS_Store
+*.DS_Store

@@ -1,0 +1,42 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# render.yaml — Render.com deploy configuration
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Render is a hosting platform that can deploy Docker containers directly from
+# a GitHub repository. When you push to the main branch, Render automatically
+# rebuilds the image and redeploys — zero manual steps.
+#
+# HOW TO DEPLOY:
+#   1. Push this repo to GitHub
+#   2. Go to https://render.com → New → Web Service
+#   3. Connect your GitHub repo
+#   4. Render detects this file and pre-fills the settings
+#   5. Click "Create Web Service"
+#
+# The free plan has enough resources for the dbRIP API (read-only SQLite, low traffic).
+# Note: free services spin down after 15 minutes of inactivity; the first request
+# after a cold start may take ~30 seconds while the container wakes up.
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    name: dbrip-api
+
+    # Build from the Dockerfile in the repo root
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+
+    # Render injects PORT automatically; our Dockerfile already uses 8000
+    # but Render routes external traffic to whichever port the app binds on.
+    # We bind to 0.0.0.0:8000 in the CMD, so no override needed.
+
+    # Free tier — upgrade to "starter" ($7/month) for always-on, more RAM
+    plan: free
+
+    # Render uses this to confirm the service started successfully.
+    # /v1/health returns {"status": "ok"} immediately.
+    healthCheckPath: /v1/health
+
+    # Build is triggered automatically on every push to the main branch.
+    # Change to a specific branch name if you want to deploy from a different branch.
+    branch: main
