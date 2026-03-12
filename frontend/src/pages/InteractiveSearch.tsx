@@ -218,7 +218,20 @@ function PopFreqTable({ id }: { id: string }) {
 
 // ── Component ────────────────────────────────────────────────────────────
 
-export default function InteractiveSearch() {
+/**
+ * Props for InteractiveSearch.
+ *
+ * onViewInIgv is optional so that existing tests that render this component
+ * without any props continue to work. When present, a "View in IGV" button
+ * appears in the action bar whenever exactly one row is blue-highlighted
+ * (row-click selected). Clicking it switches to the IGV Viewer tab and
+ * navigates to the selected insertion's genomic locus.
+ */
+interface InteractiveSearchProps {
+  onViewInIgv?: (locus: string) => void;
+}
+
+export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProps) {
   // ── State ────────────────────────────────────────────────────────────
   // pageIndex: current page (0-based), controls which slice of data the API returns
   // pageSize: rows per page, sent as "limit" to the API
@@ -495,6 +508,22 @@ export default function InteractiveSearch() {
               : copyState === "done"
               ? "Copied!"
               : `Copy ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"}`}
+          </button>
+        )}
+
+        {/* View in IGV — shown only when exactly one row is selected AND the
+            parent (App.tsx) has provided the onViewInIgv callback.
+            A single locus string ("chr3:100,234,500-100,235,000") is what
+            igv's browser.search() accepts; multiple rows would be ambiguous. */}
+        {selectedRows.length === 1 && onViewInIgv && (
+          <button
+            onClick={() => {
+              const row = selectedRows[0];
+              onViewInIgv(`${row.chrom}:${row.start}-${row.end}`);
+            }}
+            className="border border-black px-3 py-1 text-sm cursor-pointer hover:bg-gray-100"
+          >
+            View in IGV
           </button>
         )}
       </div>

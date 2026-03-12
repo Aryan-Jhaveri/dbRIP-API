@@ -92,9 +92,29 @@ export default function App() {
 
       {/* ── Tab content ────────────────────────────────────────────────── */}
       <div className="border border-t-0 border-black p-4">
-        {activeTab === "interactive" && <InteractiveSearch />}
+        {activeTab === "interactive" && <InteractiveSearch onViewInIgv={handleViewInIgv} />}
         {activeTab === "file" && <FileSearch />}
         {activeTab === "batch" && <BatchSearch />}
+
+        {/*
+          WHY IgvViewer USES display:none INSTEAD OF CONDITIONAL RENDERING:
+          The other tabs use `{activeTab === "..." && <Component />}` which
+          unmounts the component when its tab is inactive. This is fine for
+          data tables (they re-fetch on mount).
+
+          IgvViewer is different: igv.js takes ~1-2 seconds to initialize,
+          and any BAM/BED tracks the user loaded would be lost on unmount.
+          Keeping IgvViewer mounted (but hidden) preserves the browser state
+          across tab switches — the user can navigate in InteractiveSearch
+          and return to IGV with their tracks still loaded.
+
+          The `locus` prop is still updated when the user clicks "View in IGV",
+          which triggers navigation even while the tab is hidden.
+        */}
+        <div style={{ display: activeTab === "igv" ? "block" : "none" }}>
+          <IgvViewer locus={igvLocus ?? undefined} />
+        </div>
+
         {activeTab === "api-ref" && <ApiRef />}
         {activeTab === "cli-ref" && <CliRef />}
       </div>
