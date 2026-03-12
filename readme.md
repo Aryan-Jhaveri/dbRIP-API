@@ -35,10 +35,10 @@ open http://localhost:8000/docs
 
 ## Web Frontend
 
-React SPA for exploring the database in a browser. Five tabs: Interactive Search, File Search,
-Batch Search, API Reference, CLI Reference.
+React SPA for exploring the database in a browser. Six tabs: Interactive Search, File Search,
+Batch Search, IGV Viewer, API Reference, CLI Reference.
 
-**Stack:** Vite + React 19 + TypeScript + TanStack Table 8 + TanStack Query 5 + Tailwind CSS v4
+**Stack:** Vite + React 19 + TypeScript + TanStack Table 8 + TanStack Query 5 + Tailwind CSS v4 + igv.js
 
 ```bash
 cd frontend

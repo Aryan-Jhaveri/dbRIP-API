@@ -171,9 +171,10 @@ dbrip export --format bed | bedtools intersect -a - -b peaks.bed
 **Files:** `frontend/src/`
 
 **Features shipped:**
-- Interactive Search: server-side search + 6 filter types + pagination + "Go to page" + Download CSV + Copy selected rows (TSV with pop freqs) + drag-to-select rows + inline pop freq expand via checkbox
+- Interactive Search: server-side search + 6 filter types + pagination + "Go to page" + Download CSV + Copy selected rows (TSV with pop freqs) + drag-to-select rows + inline pop freq expand via checkbox + "View in IGV" button (single-row selection)
 - File Search: BED/CSV/TSV upload + window overlap + results table + download
 - Batch Search: checkbox filters (ME type, category, annotation, strand, chrom) + download
+- IGV Viewer: igv.js embedded browser — genome selector (hg38/hg19), locus navigation, local file upload (BAM+BAI, BED, VCF), active track list with remove buttons; stays mounted across tab switches to preserve loaded tracks; navigated automatically from InteractiveSearch "View in IGV"
 - API Reference tab: renders MkDocs `api-reference.md` fetched from the API
 - CLI Reference tab: quick-reference for all `dbrip` commands
 - `DataTable` component: generic, reusable, two independent interaction systems (row-click = copy selection; checkbox = inline expand)
@@ -183,7 +184,6 @@ dbrip export --format bed | bedtools intersect -a - -b peaks.bed
 **Remaining frontend work:**
 - Column header sort + filter dropdowns
 - Pop-freq filters in Interactive Search and Batch Search
-- IGV.js genome browser (see § 6 below)
 - Docker + FastAPI `StaticFiles` mount for single-process deployment
 
 ---
@@ -217,62 +217,29 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ---
 
-## 6. Genome Browser (igv.js)
+## 6. IGV Viewer (igv.js) — DONE
 
-**What:** Embed an interactive genome browser in a new "Genome Browser" tab so researchers
-can visualize TE insertion positions directly in the web app, alongside tracks like RefSeq genes.
+**Status:** Complete. Embedded igv.js browser as the 4th tab ("IGV Viewer") in the frontend.
 
-**Why:** Seeing an insertion in genomic context — surrounding genes, GC content, repeats — helps
-researchers quickly assess biological significance without switching to a separate tool like UCSC
-or IGV Desktop.
+**Files:**
+- `frontend/src/pages/IgvViewer.tsx` — main page component (browser lifecycle, track upload UI)
+- `frontend/src/types/igv.d.ts` — TypeScript ambient module declaration (igv.js has no bundled types)
+- `frontend/src/App.tsx` — adds "igv" tab, `igvLocus` state, `handleViewInIgv` callback
+- `frontend/src/pages/InteractiveSearch.tsx` — "View in IGV" button when exactly 1 row is selected
 
-**Where:** New tab in `frontend/src/App.tsx` + new component `frontend/src/pages/GenomeBrowser.tsx`
+**Features:**
+- Reference genome selector: GRCh38/hg38 (default, matches dbRIP) or GRCh37/hg19
+- Locus navigation: coordinate input (`chr3:100,234,500-100,235,000`) or gene name (`BRCA1`)
+- File upload tracks: BAM (requires .bai index), BED (no index needed), VCF (no index needed)
+- Active tracks list with per-track Remove button
+- "View in IGV" button in InteractiveSearch action bar (appears when exactly 1 row is row-click selected) — switches to IGV tab and navigates to insertion locus
+- IgvViewer stays mounted via `display:none` (not conditionally rendered) so loaded tracks persist when switching tabs
 
-**Install:**
-```bash
-cd frontend
-npm install igv
-```
-
-**React integration pattern:**
-```tsx
-// GenomeBrowser.tsx
-import { useRef, useEffect } from "react";
-import igv from "igv";
-
-export function GenomeBrowser({ locus }: { locus: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    igv.createBrowser(containerRef.current, {
-      genome: "hg38",
-      locus,               // e.g. "chr1:1,000,000-2,000,000"
-      tracks: [
-        {
-          type: "annotation",
-          name: "dbRIP Insertions",
-          // Fetch insertions for the visible region from the API
-          url: `/v1/insertions/region/hg38/${locus}?format=bed`,
-          format: "bed",
-        },
-      ],
-    });
-  }, [locus]);
-
-  return <div ref={containerRef} style={{ height: 500 }} />;
-}
-```
-
-**Locus format:** `chr1:1,000,000-2,000,000` (commas optional; igv.js also accepts
-`chr1:1000000-2000000`).
-
-**Track data:** Use the existing `GET /v1/insertions/region/hg38/{chrom}:{start}-{end}` endpoint.
-The response can be formatted as BED via `?format=bed` (already supported by the export router).
-
-**Placement:** Add a 6th tab "Genome Browser" in `App.tsx` alongside the existing five tabs.
-
-**Effort:** Small — one `npm install igv`, one new component `GenomeBrowser.tsx`, one new tab entry.
+**Key implementation notes:**
+- React StrictMode double-init guard: `if (browserRef.current !== null) return` in the init `useEffect`
+- Async race flag: `cancelled` boolean prevents assigning a browser instance to an unmounted component
+- `igv.removeBrowser(browser)` called in effect cleanup to release DOM nodes and event listeners
+- TypeScript shim (`igv.d.ts`) declares only the subset of the API actually used
 
 ---
 
@@ -393,7 +360,7 @@ lifted coordinates.
 | 2 | MCP Server | Pending | High-value, low-effort — Claude can query real data |
 | 3 | CLI tool | Done — 5 commands, 21 tests | — |
 | 4 | Web frontend | Done — core features shipped | — |
-| 5 | Genome Browser (igv.js) | Pending (stretch) | Low-effort; useful for interactive exploration |
+| 5 | IGV Viewer (igv.js) | Done | Embedded browser + file upload + cross-tab navigation from InteractiveSearch |
 | 6 | Manifest-Driven Frontend | Pending (after 2nd dataset) | Future-proofs UI against schema changes |
 | 7 | Additional datasets | Pending | Multiplies the value of everything above |
 | 8 | Enrichment | Pending | High scientific value but requires external data work |
