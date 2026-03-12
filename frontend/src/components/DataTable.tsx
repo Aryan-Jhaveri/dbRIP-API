@@ -42,6 +42,7 @@
  *   isLoading   — Whether data is currently being fetched
  */
 
+import { useState } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -94,6 +95,10 @@ export default function DataTable<TData>({
 }: DataTableProps<TData>) {
   // Calculate total number of pages
   const pageCount = Math.ceil(total / pageSize);
+
+  // "Go to page" input — tracks the raw text so the user can type freely.
+  // We only jump when they press Enter or blur the field, and we clamp to [1, pageCount].
+  const [goToInput, setGoToInput] = useState("");
 
   // Create TanStack Table instance
   // manualPagination = true tells TanStack "don't paginate locally,
@@ -159,6 +164,37 @@ export default function DataTable<TData>({
           <span>
             Page {total === 0 ? 0 : pageIndex + 1} of {pageCount}
           </span>
+
+          {/* Go to page input — lets users jump to an arbitrary page number
+              without clicking Next/Previous repeatedly. We clamp the entered
+              value to [1, pageCount] so out-of-range inputs don't break anything. */}
+          {pageCount > 1 && (
+            <label className="flex items-center gap-1">
+              Go to:
+              <input
+                type="number"
+                min={1}
+                max={pageCount}
+                value={goToInput}
+                onChange={(e) => setGoToInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const page = Math.min(Math.max(1, parseInt(goToInput) || 1), pageCount);
+                    onPaginationChange(page - 1, pageSize);
+                    setGoToInput("");
+                  }
+                }}
+                onBlur={() => {
+                  if (goToInput !== "") {
+                    const page = Math.min(Math.max(1, parseInt(goToInput) || 1), pageCount);
+                    onPaginationChange(page - 1, pageSize);
+                    setGoToInput("");
+                  }
+                }}
+                className="border border-black px-1 py-0.5 w-14 text-center"
+              />
+            </label>
+          )}
 
           {/* Next button */}
           <button

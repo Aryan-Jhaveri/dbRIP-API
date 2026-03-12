@@ -138,6 +138,45 @@ export async function listDatasets(): Promise<Dataset[]> {
   return apiFetch<Dataset[]>(`${BASE}/datasets`);
 }
 
+// ── File Search ──────────────────────────────────────────────────────────
+
+/**
+ * Upload a BED/CSV/TSV file and find insertions overlapping the listed regions.
+ * Maps to: POST /v1/insertions/file-search
+ *
+ * @param file    - The file object from an <input type="file"> or drop event
+ * @param window  - Extend each region by ±window bp (default 0)
+ * @param limit   - Page size
+ * @param offset  - Page offset
+ *
+ * WHY POST INSTEAD OF GET?
+ *   File uploads use multipart/form-data, which browsers send as POST.
+ *   The API still doesn't modify any data — POST here just means "send me
+ *   a file as input", not "create something".
+ */
+export async function fileSearch(
+  file: File,
+  window: number = 0,
+  limit: number = 50,
+  offset: number = 0
+): Promise<PaginatedResponse> {
+  const form = new FormData();
+  form.append("file", file);
+
+  const query = buildQuery({ window, limit, offset });
+  const response = await fetch(`${BASE}/insertions/file-search${query}`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail?.detail ?? `API error: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
 // ── Export ───────────────────────────────────────────────────────────────
 
 /**

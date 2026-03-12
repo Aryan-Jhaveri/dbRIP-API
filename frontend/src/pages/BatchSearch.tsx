@@ -78,6 +78,57 @@ const STRANDS: FilterOption[] = [
   { value: "null", label: "Undetermined" },
 ];
 
+// ── Population frequency options ─────────────────────────────────────────
+// 5 super-populations + 26 sub-populations from the 1000 Genomes Project.
+// Values match the population codes stored in the pop_frequencies table.
+// "" means "no population filter" (show all insertions regardless of freq).
+
+const POPULATIONS: FilterOption[] = [
+  // Super-populations
+  { value: "AFR", label: "AFR — African" },
+  { value: "AMR", label: "AMR — Ad Mixed American" },
+  { value: "EAS", label: "EAS — East Asian" },
+  { value: "EUR", label: "EUR — European" },
+  { value: "SAS", label: "SAS — South Asian" },
+  // Sub-populations
+  { value: "ACB", label: "ACB" },
+  { value: "ASW", label: "ASW" },
+  { value: "BEB", label: "BEB" },
+  { value: "CDX", label: "CDX" },
+  { value: "CEU", label: "CEU" },
+  { value: "CHB", label: "CHB" },
+  { value: "CHS", label: "CHS" },
+  { value: "CLM", label: "CLM" },
+  { value: "ESN", label: "ESN" },
+  { value: "FIN", label: "FIN" },
+  { value: "GBR", label: "GBR" },
+  { value: "GIH", label: "GIH" },
+  { value: "GWD", label: "GWD" },
+  { value: "IBS", label: "IBS" },
+  { value: "ITU", label: "ITU" },
+  { value: "JPT", label: "JPT" },
+  { value: "KHV", label: "KHV" },
+  { value: "LWK", label: "LWK" },
+  { value: "MSL", label: "MSL" },
+  { value: "MXL", label: "MXL" },
+  { value: "PEL", label: "PEL" },
+  { value: "PJL", label: "PJL" },
+  { value: "PUR", label: "PUR" },
+  { value: "STU", label: "STU" },
+  { value: "TSI", label: "TSI" },
+  { value: "YRI", label: "YRI" },
+];
+
+// Preset allele frequency thresholds for the min_freq dropdown.
+// "" maps to no filter; numeric strings are parsed to floats before sending.
+const MIN_FREQ_OPTIONS: FilterOption[] = [
+  { value: "", label: "Any frequency" },
+  { value: "0.01", label: "≥ 1%" },
+  { value: "0.05", label: "≥ 5%" },
+  { value: "0.10", label: "≥ 10%" },
+  { value: "0.50", label: "≥ 50%" },
+];
+
 const CHROMOSOMES: FilterOption[] = [
   ...Array.from({ length: 22 }, (_, i) => ({
     value: `chr${i + 1}`,
@@ -141,11 +192,14 @@ function CheckboxGroup({
 export default function BatchSearch() {
   // ── Filter state ─────────────────────────────────────────────────────
   // Each filter group tracks its selected values as a Set of strings.
+  // population and minFreq use plain strings ("" = no filter).
   const [categories, setCategories] = useState<Set<string>>(new Set());
   const [meFamilies, setMeFamilies] = useState<Set<string>>(new Set());
   const [annotations, setAnnotations] = useState<Set<string>>(new Set());
   const [strands, setStrands] = useState<Set<string>>(new Set());
   const [chromosomes, setChromosomes] = useState<Set<string>>(new Set());
+  const [population, setPopulation] = useState("");
+  const [minFreq, setMinFreq] = useState("");
 
   // ── Build API params from selected filters ───────────────────────────
   // Category/family/annotation: the API takes single values, so we only
@@ -162,8 +216,10 @@ export default function BatchSearch() {
     if (annotations.size === 1) p.annotation = [...annotations][0];
     if (strands.size > 0) p.strand = [...strands].join(",");
     if (chromosomes.size > 0) p.chrom = [...chromosomes].join(",");
+    if (population) p.population = population;
+    if (population && minFreq) p.min_freq = parseFloat(minFreq);
     return p;
-  }, [categories, meFamilies, annotations, strands, chromosomes]);
+  }, [categories, meFamilies, annotations, strands, chromosomes, population, minFreq]);
 
   // ── Check if any filter is selected ──────────────────────────────────
   const hasFilters =
@@ -171,7 +227,8 @@ export default function BatchSearch() {
     meFamilies.size > 0 ||
     annotations.size > 0 ||
     strands.size > 0 ||
-    chromosomes.size > 0;
+    chromosomes.size > 0 ||
+    !!population;
 
   // ── Fetch count of matching results ──────────────────────────────────
   // We only fetch with limit=1 to get the total count — we don't need
@@ -189,6 +246,8 @@ export default function BatchSearch() {
   if (annotations.size === 1) exportParams.annotation = [...annotations][0];
   if (strands.size > 0) exportParams.strand = [...strands].join(",");
   if (chromosomes.size > 0) exportParams.chrom = [...chromosomes].join(",");
+  if (population) exportParams.population = population;
+  if (population && minFreq) exportParams.min_freq = parseFloat(minFreq);
   const exportUrl = buildExportUrl("csv", exportParams);
 
   return (
@@ -213,6 +272,46 @@ export default function BatchSearch() {
           selected={annotations}
           onChange={setAnnotations}
         />
+
+        {/* Population Frequency filters */}
+        {/* Two dropdowns: population selector + minimum allele frequency.
+            Min freq is disabled until a population is chosen, because the
+            API only applies the freq filter when population is provided. */}
+        <fieldset className="mb-4">
+          <legend className="text-sm font-semibold mb-1">By Population Frequency:</legend>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="text-sm">
+              Population:{" "}
+              <select
+                value={population}
+                onChange={(e) => setPopulation(e.target.value)}
+                className="border border-black px-2 py-1 text-sm"
+              >
+                <option value="">Any population</option>
+                {POPULATIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm">
+              Min frequency:{" "}
+              <select
+                value={minFreq}
+                onChange={(e) => setMinFreq(e.target.value)}
+                disabled={!population}
+                className="border border-black px-2 py-1 text-sm disabled:opacity-40"
+              >
+                {MIN_FREQ_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </fieldset>
 
         {/* Download + count */}
         <div className="mt-4 flex items-center gap-4">

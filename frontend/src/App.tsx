@@ -20,6 +20,7 @@
 
 import { useState } from "react";
 import InteractiveSearch from "./pages/InteractiveSearch";
+import FileSearch from "./pages/FileSearch";
 import BatchSearch from "./pages/BatchSearch";
 
 /**
@@ -73,12 +74,7 @@ export default function App() {
       {/* ── Tab content ────────────────────────────────────────────────── */}
       <div className="border border-t-0 border-black p-4">
         {activeTab === "interactive" && <InteractiveSearch />}
-        {activeTab === "file" && (
-          <p className="text-sm">
-            File Search — upload a BED/CSV/TSV file to find matching entries.
-            (Component coming soon.)
-          </p>
-        )}
+        {activeTab === "file" && <FileSearch />}
         {activeTab === "batch" && <BatchSearch />}
       </div>
     </div>
