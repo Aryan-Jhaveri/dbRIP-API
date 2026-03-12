@@ -1,148 +1,122 @@
 # dbRIP API
 
-Read-only REST API for the [dbRIP database](https://lianglab.shinyapps.io/shinydbRIP/) of retrotransposon insertion polymorphisms — 44,984 TE insertions across 33 populations from the 1000 Genomes Project.
+Read-only database of 44,984 retrotransposon insertion polymorphisms across 33 populations from the 1000 Genomes Project. Provided as a web app, REST API, and command-line tool.
 
-## Running with Docker
+The hosted version is available at: **`<your-deploy-url>`**
 
-The easiest way to run the full stack (API + web app) in one command:
+---
+
+## CLI — query the database from your terminal
+
+Most lab members only need this. Install the CLI directly from GitHub — no cloning required:
 
 ```bash
-docker build -t dbrip-api .
-docker run -p 8000:8000 dbrip-api
+pip install "dbrip-api[cli] @ git+https://github.com/Aryan-Jhaveri/dbRIP-API.git"
 ```
 
-Then open `http://localhost:8000`. The Docker image compiles the frontend, loads the database, and starts the server — no other setup needed.
+This installs the `dbrip` command and its two dependencies (`typer`, `httpx`). Nothing else from the repo is installed.
 
-## Local Development
-
-If you want to work on the code, run the API and frontend separately.
-
-**Requirements:** Python 3.11+, Node.js 18+
+Then tell it where the hosted server is:
 
 ```bash
-# 1. Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 2. Install dependencies
-pip install -e ".[all,dev]"
-
-# 3. Load the database
-python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml
-
-# 4. Start the API
-uvicorn app.main:app --reload
-# → http://localhost:8000/docs
+export DBRIP_API_URL=https://<your-deploy-url>
 ```
 
-Then in a separate terminal, start the frontend:
+You can add that line to your `~/.bashrc` or `~/.zshrc` so you don't have to set it every session.
 
 ```bash
-cd frontend
-npm install
-npm run dev
-# → http://localhost:5173
-```
-
-The frontend proxies all `/v1` requests to `localhost:8000`, so both can run simultaneously without any CORS configuration.
-
-## Deployment
-
-**Render** — connect this repo on [render.com](https://render.com) and it auto-deploys from the `render.yaml` in this repo. Every push to `main` triggers a redeploy.
-
-**GitHub Actions** — on every push to `main`, the CI workflow runs tests and pushes a Docker image to the GitHub Container Registry (`ghcr.io/<your-username>/dbrip-api:latest`).
-
-## API Endpoints
-
-Interactive docs available at `/docs` (Swagger) or `/redoc` after starting the server.
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /v1/health` | Health check |
-| `GET /v1/insertions` | List insertions with filters and pagination |
-| `GET /v1/insertions/{id}` | Single insertion with population frequencies |
-| `GET /v1/insertions/region/{assembly}/{chrom}:{start}-{end}` | Region query |
-| `GET /v1/export?format=bed\|vcf\|csv` | Export filtered results |
-| `GET /v1/stats?by=me_type\|chrom\|variant_class` | Summary counts |
-| `GET /v1/datasets` | List loaded datasets |
-
-All query endpoints accept these optional filters (AND logic):
-
-| Param | Example | Description |
-|-------|---------|-------------|
-| `me_type` | `ALU` | TE family |
-| `me_subtype` | `AluYa5` | TE subfamily |
-| `me_category` | `Non-reference` | Reference or polymorphic |
-| `variant_class` | `Common` | Frequency class |
-| `annotation` | `INTRONIC` | Genomic context |
-| `population` | `EUR` | Filter by population |
-| `min_freq` | `0.05` | Minimum allele frequency (requires `population`) |
-| `max_freq` | `0.50` | Maximum allele frequency (requires `population`) |
-| `limit` | `50` | Page size (max 1000) |
-| `offset` | `0` | Pagination offset |
-
-## CLI Tool
-
-A command-line client that wraps the API. Requires the API to be running.
-
-```bash
+# Search by region and TE type
 dbrip search --region chr1:1M-5M --me-type ALU
+
+# Get full details for one insertion
 dbrip get A0000001
-dbrip export --format vcf --me-type LINE1 -o l1.vcf
+
+# Export to BED/VCF/CSV
+dbrip export --format bed --me-type LINE1 -o line1.bed
+dbrip export --format vcf | bgzip > insertions.vcf.gz
+
+# Summary counts
 dbrip stats --by me_type
-dbrip datasets
+dbrip stats --by population
 ```
 
 Add `--output json` to any command for pipe-friendly JSON instead of a table.
 
-## Tests
+---
+
+## Web App
+
+The web app is served from the same URL as the API. It has six tabs:
+
+- **Interactive Search** — search and filter all insertions, expand rows for population frequencies, copy selected rows as TSV, view in IGV
+- **File Search** — upload a BED/CSV/TSV and find overlapping insertions within a configurable window
+- **Batch Search** — filter by TE type, category, annotation, strand, and chromosome
+- **IGV Viewer** — embedded genome browser; navigates automatically from Interactive Search
+- **API Reference** — full endpoint documentation
+- **CLI Reference** — quick-reference for all `dbrip` commands
+
+---
+
+## Self-hosting
+
+If you want to run your own instance (e.g. on a lab server), the simplest path is Docker:
 
 ```bash
+git clone https://github.com/<org>/dbRIP-API.git
+cd dbRIP-API
+docker build -t dbrip-api .
+docker run -p 8000:8000 dbrip-api
+```
+
+Open `http://localhost:8000`. The image builds the frontend, loads the database, and starts the server in one step.
+
+For cloud hosting, connect the repo to [Render](https://render.com) — it will detect the `render.yaml` and configure everything automatically. Every push to `main` triggers a redeploy.
+
+---
+
+## Development
+
+For working on the code locally. Requires Python 3.11+ and Node.js 18+.
+
+```bash
+# Python setup
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[all,dev]"
+python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml
+uvicorn app.main:app --reload   # → http://localhost:8000/docs
+
+# Frontend (separate terminal)
+cd frontend && npm install && npm run dev   # → http://localhost:5173
+
+# Tests
 pytest tests/ -v
 ```
 
-60 tests total: 13 ingest, 26 API, 21 CLI. Tests use a 5-row in-memory fixture — no need to load the full database first.
-
-## Project Structure
+### Project structure
 
 ```
-data/raw/dbRIP_all.csv          ← source CSV (44,984 rows)
-data/manifests/dbrip_v1.yaml   ← describes the CSV format for ingest
+data/raw/dbRIP_all.csv          ← source CSV (44,984 rows); the DB is always rebuildable from this
+data/manifests/dbrip_v1.yaml   ← describes the CSV format for the ingest pipeline
 
-ingest/                         ← ETL pipeline (used by scripts/, not the API)
-scripts/ingest.py               ← loads CSV into SQLite; run directly, not imported
+ingest/                         ← ETL pipeline
+scripts/ingest.py               ← CLI to load CSV into SQLite
 
-app/                            ← FastAPI read-only query layer
-  main.py                       ← app entry point, registers routers
-  database.py                   ← SQLAlchemy engine + session
-  models.py                     ← ORM models
-  schemas.py                    ← Pydantic response schemas
-  routers/                      ← one file per endpoint group
-
+app/                            ← FastAPI (read-only)
 cli/dbrip.py                    ← `dbrip` CLI (Typer + httpx)
 frontend/src/                   ← React app (Vite + TanStack + Tailwind + igv.js)
-tests/                          ← pytest suite
+tests/                          ← pytest suite (60 tests)
 ```
 
-## Data Management
+### API endpoints
 
-The database is always rebuildable from the CSV. To reload:
+Full interactive docs at `/docs`. Quick reference:
 
-```bash
-python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/insertions` | List/search insertions |
+| `GET /v1/insertions/{id}` | Single insertion with population frequencies |
+| `GET /v1/insertions/region/{assembly}/{chrom}:{start}-{end}` | Region query |
+| `GET /v1/export?format=bed\|vcf\|csv` | Export filtered results |
+| `GET /v1/stats?by=me_type\|chrom\|variant_class` | Summary counts |
 
-# Validate without writing
-python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml --dry-run
-
-# Check what's loaded
-python scripts/ingest.py --status
-```
-
-## Switching to PostgreSQL
-
-```bash
-export DATABASE_URL="postgresql://user:pass@localhost:5432/dbrip"
-uvicorn app.main:app --reload
-```
-
-The ORM models and queries work identically on SQLite and PostgreSQL.
+Common filter parameters: `me_type`, `me_subtype`, `me_category`, `variant_class`, `annotation`, `population`, `min_freq`, `max_freq`, `limit`, `offset`.
