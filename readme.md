@@ -2,129 +2,59 @@
 
 Read-only REST API for the [dbRIP database](https://lianglab.shinyapps.io/shinydbRIP/) of retrotransposon insertion polymorphisms — 44,984 TE insertions across 33 populations from the 1000 Genomes Project.
 
-## Quick Start
-1. Installation
+## Running with Docker
 
-We use optional dependencies to keep the installation lean. Choose the one that fits your task:
-| If you want to...	| Run this command |
-| ------------------|----------------|
-| Develop/Test everything	| ` pip install -e ".[all,dev]" ` |
-| Just run the API server	| ` pip install -e ".[api]" ` |
-| Just run the Ingest scripts	| ` pip install -e ".[ingest]" ` |
-| Use the CLI tool | ` pip install -e ".[cli]" ` |
-
+The easiest way to run the full stack (API + web app) in one command:
 
 ```bash
-# 1. Set up Python environment
+docker build -t dbrip-api .
+docker run -p 8000:8000 dbrip-api
+```
+
+Then open `http://localhost:8000`. The Docker image compiles the frontend, loads the database, and starts the server — no other setup needed.
+
+## Local Development
+
+If you want to work on the code, run the API and frontend separately.
+
+**Requirements:** Python 3.11+, Node.js 18+
+
+```bash
+# 1. Create and activate a virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Installing what we need, here we're doing all to show how
-# the pipe works for developing everything
+# 2. Install dependencies
 pip install -e ".[all,dev]"
 
-# 2. Load the data into SQLite
+# 3. Load the database
 python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml
 
-# 3. Start the API
+# 4. Start the API
 uvicorn app.main:app --reload
-
-# 4. Open the interactive docs
-open http://localhost:8000/docs
+# → http://localhost:8000/docs
 ```
 
-## Web Frontend
-
-React SPA for exploring the database in a browser. Six tabs: Interactive Search, File Search,
-Batch Search, IGV Viewer, API Reference, CLI Reference.
-
-**Stack:** Vite + React 19 + TypeScript + TanStack Table 8 + TanStack Query 5 + Tailwind CSS v4 + igv.js
+Then in a separate terminal, start the frontend:
 
 ```bash
 cd frontend
 npm install
-npm run dev   # → http://localhost:5173
+npm run dev
+# → http://localhost:5173
 ```
 
-Vite proxies all `/v1` requests to `localhost:8000`, so the frontend and API run on separate
-ports during development with no CORS configuration needed.
+The frontend proxies all `/v1` requests to `localhost:8000`, so both can run simultaneously without any CORS configuration.
 
-See [`frontend/README.md`](frontend/README.md) for architecture details and file structure.
+## Deployment
 
-## CLI Tool
+**Render** — connect this repo on [render.com](https://render.com) and it auto-deploys from the `render.yaml` in this repo. Every push to `main` triggers a redeploy.
 
-`dbrip` — a command-line client that wraps the API. Requires the API running at
-`http://localhost:8000` (or `DBRIP_API_URL` env var).
-
-```bash
-pip install -e ".[cli]"
-```
-
-| Command | What it does | Example |
-|---------|--------------|---------|
-| `search` | List insertions with filters | `dbrip search --region chr1:1M-5M --me-type ALU` |
-| `get` | Full detail for one insertion | `dbrip get A0000001` |
-| `export` | Export as BED / VCF / CSV | `dbrip export --format vcf --me-type LINE1 -o l1.vcf` |
-| `stats` | Summary counts grouped by field | `dbrip stats --by me_type` |
-| `datasets` | List loaded datasets | `dbrip datasets` |
-
-Output defaults to a rich table; add `--output json` for pipe-friendly JSON.
-
-## Project Structure
-
-```
-dbRIP-API/
-│
-├── data/
-│   ├── raw/dbRIP_all.csv              ← Source CSV (44,984 rows, 47 columns)
-│   └── manifests/dbrip_v1.yaml        ← Describes the CSV format for the ingest pipeline
-│
-├── ingest/                            ← ETL pipeline (used by scripts/, NOT by app/)
-│   ├── base.py                        ← Abstract BaseLoader — the contract every loader follows
-│   └── dbrip.py                       ← dbRIP-specific loader (reads CSV, renames cols, melts pops)
-│
-├── scripts/                           ← Standalone scripts for data management
-│   └── ingest.py                      ← Load CSV into SQLite (run directly, not imported by API)
-│
-├── app/                               ← FastAPI — read-only query layer
-│   ├── main.py                        ← App entry point, registers routers
-│   ├── database.py                    ← SQLAlchemy engine + session (SQLite dev / PostgreSQL prod)
-│   ├── models.py                      ← ORM models (Insertion, PopFrequency, DatasetRegistry)
-│   ├── schemas.py                     ← Pydantic response schemas
-│   └── routers/
-│       ├── insertions.py              ← Search, get by ID, region queries
-│       ├── export.py                  ← BED / VCF / CSV export
-│       ├── stats.py                   ← Summary counts (GROUP BY)
-│       └── datasets.py                ← Dataset registry
-│
-├── cli/                               ← `dbrip` CLI — 5 commands, 21 tests
-│   ├── __init__.py
-│   └── dbrip.py                       ← Typer + httpx; thin wrapper around the API
-│
-├── frontend/                          ← React SPA — see frontend/README.md
-│   └── src/
-│
-├── tests/                             ← 60 tests (pytest)
-│   ├── fixtures/sample.csv            ← 5-row subset for fast tests
-│   ├── test_ingest.py                 ← Ingest pipeline tests (13 tests)
-│   ├── test_api.py                    ← API endpoint tests (26 tests)
-│   └── test_cli.py                    ← CLI command tests (21 tests)
-│
-├── docs/                              ← MkDocs source pages (served by the frontend Docs tab)
-├── alembic/                           ← Database migrations (placeholder — see alembic/README.md)
-├── mcp/                               ← MCP server for Claude (planned)
-└── pyproject.toml                     ← Dependencies and project config
-```
-
-## Core Design Principles
-
-1. **CSV is the source of truth** — the database is always rebuildable from `data/raw/`
-2. **API is read-only** — no write endpoints; data management lives in `scripts/`
-3. **No data cleaning** — nulls and unexpected values are preserved exactly as-is from the CSV
-4. **scripts/ is standalone** — bioinformaticians run scripts directly, the API never imports them
-5. **Modular loaders** — new dataset = new manifest YAML + new loader class, nothing else changes
+**GitHub Actions** — on every push to `main`, the CI workflow runs tests and pushes a Docker image to the GitHub Container Registry (`ghcr.io/<your-username>/dbrip-api:latest`).
 
 ## API Endpoints
+
+Interactive docs available at `/docs` (Swagger) or `/redoc` after starting the server.
 
 | Endpoint | Description |
 |----------|-------------|
@@ -132,11 +62,9 @@ dbRIP-API/
 | `GET /v1/insertions` | List insertions with filters and pagination |
 | `GET /v1/insertions/{id}` | Single insertion with population frequencies |
 | `GET /v1/insertions/region/{assembly}/{chrom}:{start}-{end}` | Region query |
-| `GET /v1/export?format=bed\|vcf\|csv` | Export with same filters |
+| `GET /v1/export?format=bed\|vcf\|csv` | Export filtered results |
 | `GET /v1/stats?by=me_type\|chrom\|variant_class` | Summary counts |
 | `GET /v1/datasets` | List loaded datasets |
-
-### Filter Parameters
 
 All query endpoints accept these optional filters (AND logic):
 
@@ -147,57 +75,74 @@ All query endpoints accept these optional filters (AND logic):
 | `me_category` | `Non-reference` | Reference or polymorphic |
 | `variant_class` | `Common` | Frequency class |
 | `annotation` | `INTRONIC` | Genomic context |
-| `population` | `EUR` | Filter by population frequency |
+| `population` | `EUR` | Filter by population |
 | `min_freq` | `0.05` | Minimum allele frequency (requires `population`) |
 | `max_freq` | `0.50` | Maximum allele frequency (requires `population`) |
 | `limit` | `50` | Page size (max 1000) |
 | `offset` | `0` | Pagination offset |
 
-## Data Management
+## CLI Tool
 
-Data is managed through scripts, not the API:
+A command-line client that wraps the API. Requires the API to be running.
 
 ```bash
-# Load the full dataset
+dbrip search --region chr1:1M-5M --me-type ALU
+dbrip get A0000001
+dbrip export --format vcf --me-type LINE1 -o l1.vcf
+dbrip stats --by me_type
+dbrip datasets
+```
+
+Add `--output json` to any command for pipe-friendly JSON instead of a table.
+
+## Tests
+
+```bash
+pytest tests/ -v
+```
+
+60 tests total: 13 ingest, 26 API, 21 CLI. Tests use a 5-row in-memory fixture — no need to load the full database first.
+
+## Project Structure
+
+```
+data/raw/dbRIP_all.csv          ← source CSV (44,984 rows)
+data/manifests/dbrip_v1.yaml   ← describes the CSV format for ingest
+
+ingest/                         ← ETL pipeline (used by scripts/, not the API)
+scripts/ingest.py               ← loads CSV into SQLite; run directly, not imported
+
+app/                            ← FastAPI read-only query layer
+  main.py                       ← app entry point, registers routers
+  database.py                   ← SQLAlchemy engine + session
+  models.py                     ← ORM models
+  schemas.py                    ← Pydantic response schemas
+  routers/                      ← one file per endpoint group
+
+cli/dbrip.py                    ← `dbrip` CLI (Typer + httpx)
+frontend/src/                   ← React app (Vite + TanStack + Tailwind + igv.js)
+tests/                          ← pytest suite
+```
+
+## Data Management
+
+The database is always rebuildable from the CSV. To reload:
+
+```bash
 python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml
 
-# Load a corrections CSV (only updates those rows)
-python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml \
-                         --csv data/raw/corrections.csv
-
-# Validate without writing to DB
+# Validate without writing
 python scripts/ingest.py --manifest data/manifests/dbrip_v1.yaml --dry-run
 
 # Check what's loaded
 python scripts/ingest.py --status
 ```
 
-Or fix rows directly in SQL:
-```sql
-UPDATE insertions SET annotation = 'INTRONIC' WHERE id = 'A0000001';
-```
-
-## Running Tests
-
-```bash
-source .venv/bin/activate
-pytest tests/ -v
-```
-
-## Why is alembic/ empty?
-
-Alembic is a database migration tool for evolving schemas without losing data.
-Right now `scripts/ingest.py` creates tables from scratch, which works fine for
-SQLite in development. Alembic becomes necessary when deploying to PostgreSQL in
-production — you can't drop and recreate tables without losing data. See
-[alembic/README.md](alembic/README.md) for setup instructions when ready.
-
 ## Switching to PostgreSQL
 
-Set the `DATABASE_URL` environment variable:
 ```bash
 export DATABASE_URL="postgresql://user:pass@localhost:5432/dbrip"
 uvicorn app.main:app --reload
 ```
 
-Everything else stays the same — the ORM models and queries work identically on both SQLite and PostgreSQL.
+The ORM models and queries work identically on SQLite and PostgreSQL.
