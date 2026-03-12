@@ -3,31 +3,35 @@ name = "dbrip-api"
 version = "0.1.0"
 description = "Read-only API for the dbRIP database of retrotransposon insertion polymorphisms"
 requires-python = ">=3.11"
-dependencies = [
-    # API
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.34",
-    # Database
-    "sqlalchemy>=2.0",
-    # Validation
-    "pydantic>=2.0",
-    # Ingest
-    "pandas>=2.0",
-    "pyyaml>=6.0",
-    # CLI
-    "typer[all]>=0.12",
-    "httpx>=0.27",
-    # File upload support (required by FastAPI for multipart/form-data)
-    "python-multipart>=0.0.9",
-]
+dependencies = []
 
 [project.scripts]
 dbrip = "cli.dbrip:app"
 
 [project.optional-dependencies]
+cli = [
+    "typer[all]>=0.12",
+    "httpx>=0.27",
+]
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sqlalchemy>=2.0",
+    "pydantic>=2.0",
+    "python-multipart>=0.0.9",
+]
+ingest = [
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "sqlalchemy>=2.0",
+]
+# Convenience group to install all functional components
+all = [
+    "dbrip-api[cli,api,ingest]",
+]
 dev = [
     "pytest>=8.0",
-    "httpx>=0.27",          # FastAPI TestClient needs this
+    "httpx>=0.27",
     "ruff>=0.8",
 ]
 
