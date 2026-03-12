@@ -44,8 +44,8 @@ jobs:
           # Cache pip downloads between runs so repeated installs are fast
           cache: "pip"
 
-      - name: Install dependencies (api + ingest + dev extras)
-        run: pip install -e ".[api,ingest,dev]"
+      - name: Install dependencies
+        run: pip install -e ".[all,dev]"
 
       - name: Run tests
         # The tests create their own in-memory SQLite fixture — no ingest needed
