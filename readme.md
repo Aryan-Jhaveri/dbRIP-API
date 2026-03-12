@@ -58,7 +58,11 @@ dbRIP-API/
 │       ├── insertions.py              ← Search, get by ID, region queries
 │       ├── export.py                  ← BED / VCF / CSV export
 │       ├── stats.py                   ← Summary counts (GROUP BY)
-│       └── datasets.py               ← Dataset registry
+│       └── datasets.py                ← Dataset registry
+│
+├── cli/                               ← CLI tool
+│
+├── front-end                          ← front-end vite app to host a webpage 
 │
 ├── tests/                             ← 39 tests (pytest)
 │   ├── fixtures/sample.csv            ← 5-row subset for fast tests
@@ -67,9 +71,7 @@ dbRIP-API/
 │
 ├── alembic/                           ← Database migrations (placeholder — see alembic/README.md)
 ├── mcp/                               ← MCP server for Claude (planned)
-├── cli/                               ← CLI tool (planned)
-├── pyproject.toml                     ← Dependencies and project config
-└── CLAUDE.md                          ← Project context for Claude Code
+└── pyproject.toml                     ← Dependencies and project config
 ```
 
 ## Core Design Principles
