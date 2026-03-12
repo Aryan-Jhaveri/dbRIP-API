@@ -8,10 +8,10 @@ Read-only REST API for the [dbRIP database](https://lianglab.shinyapps.io/shinyd
 We use optional dependencies to keep the installation lean. Choose the one that fits your task:
 | If you want to...	| Run this command |
 | ------------------|----------------|
-| Develop/Test everything	| ` pip install -e ".[all,dev]" ` | 
-| Just run the API server	| ` pip install -e ".[api]" ` | 
-| Just run the Ingest scripts	| ` pip install -e ".[ingest]" ` | 
-| Use the CLI tool | ` pip install -e ".[cli]" ` | 
+| Develop/Test everything	| ` pip install -e ".[all,dev]" ` |
+| Just run the API server	| ` pip install -e ".[api]" ` |
+| Just run the Ingest scripts	| ` pip install -e ".[ingest]" ` |
+| Use the CLI tool | ` pip install -e ".[cli]" ` |
 
 
 ```bash
@@ -19,7 +19,7 @@ We use optional dependencies to keep the installation lean. Choose the one that 
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Installing what we need, here we're doing all to show how 
+# Installing what we need, here we're doing all to show how
 # the pipe works for developing everything
 pip install -e ".[all,dev]"
 
@@ -32,6 +32,43 @@ uvicorn app.main:app --reload
 # 4. Open the interactive docs
 open http://localhost:8000/docs
 ```
+
+## Web Frontend
+
+React SPA for exploring the database in a browser. Five tabs: Interactive Search, File Search,
+Batch Search, API Reference, CLI Reference.
+
+**Stack:** Vite + React 19 + TypeScript + TanStack Table 8 + TanStack Query 5 + Tailwind CSS v4
+
+```bash
+cd frontend
+npm install
+npm run dev   # → http://localhost:5173
+```
+
+Vite proxies all `/v1` requests to `localhost:8000`, so the frontend and API run on separate
+ports during development with no CORS configuration needed.
+
+See [`frontend/README.md`](frontend/README.md) for architecture details and file structure.
+
+## CLI Tool
+
+`dbrip` — a command-line client that wraps the API. Requires the API running at
+`http://localhost:8000` (or `DBRIP_API_URL` env var).
+
+```bash
+pip install -e ".[cli]"
+```
+
+| Command | What it does | Example |
+|---------|--------------|---------|
+| `search` | List insertions with filters | `dbrip search --region chr1:1M-5M --me-type ALU` |
+| `get` | Full detail for one insertion | `dbrip get A0000001` |
+| `export` | Export as BED / VCF / CSV | `dbrip export --format vcf --me-type LINE1 -o l1.vcf` |
+| `stats` | Summary counts grouped by field | `dbrip stats --by me_type` |
+| `datasets` | List loaded datasets | `dbrip datasets` |
+
+Output defaults to a rich table; add `--output json` for pipe-friendly JSON.
 
 ## Project Structure
 
@@ -60,14 +97,22 @@ dbRIP-API/
 │       ├── stats.py                   ← Summary counts (GROUP BY)
 │       └── datasets.py               ← Dataset registry
 │
-├── tests/                             ← 39 tests (pytest)
+├── cli/                               ← `dbrip` CLI — 5 commands, 21 tests
+│   ├── __init__.py
+│   └── dbrip.py                       ← Typer + httpx; thin wrapper around the API
+│
+├── frontend/                          ← React SPA — see frontend/README.md
+│   └── src/
+│
+├── tests/                             ← 60 tests (pytest)
 │   ├── fixtures/sample.csv            ← 5-row subset for fast tests
 │   ├── test_ingest.py                 ← Ingest pipeline tests (13 tests)
-│   └── test_api.py                    ← API endpoint tests (26 tests)
+│   ├── test_api.py                    ← API endpoint tests (26 tests)
+│   └── test_cli.py                    ← CLI command tests (21 tests)
 │
+├── docs/                              ← MkDocs source pages (served by the frontend Docs tab)
 ├── alembic/                           ← Database migrations (placeholder — see alembic/README.md)
 ├── mcp/                               ← MCP server for Claude (planned)
-├── cli/                               ← CLI tool (planned)
 ├── pyproject.toml                     ← Dependencies and project config
 └── CLAUDE.md                          ← Project context for Claude Code
 ```
