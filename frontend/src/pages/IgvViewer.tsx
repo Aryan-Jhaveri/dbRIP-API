@@ -370,7 +370,7 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
           <select
             value={genome}
             onChange={handleGenomeChange}
-            className="border border-black px-2 py-1 text-sm"
+            className="border border-black dark:border-gray-500 px-2 py-1 text-sm w-full sm:w-auto"
           >
             <option value="hg38">GRCh38 / hg38 (recommended for dbRIP)</option>
             <option value="hg19">GRCh37 / hg19 (older datasets)</option>
@@ -383,7 +383,9 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
             ("BRCA1"). Gene names are resolved via igv.js's built-in NCBI search.
             This field is also updated automatically when the `locus` prop changes
             (i.e. when the user clicks "View in IGV" in InteractiveSearch). */}
-        <div className="flex-1 min-w-[280px]">
+        {/* min-w-0 instead of min-w-[280px] prevents overflow on narrow screens;
+            flex-1 still lets it expand to fill available space on desktop. */}
+        <div className="flex-1 min-w-0 w-full sm:w-auto">
           <p className="text-xs font-semibold mb-1">Go to locus</p>
           <div className="flex gap-2">
             <input
@@ -392,11 +394,11 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
               onChange={(e) => setLocusInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleGoToLocus()}
               placeholder="e.g. chr1:1,000,000-1,001,000 or BRCA1"
-              className="flex-1 border border-black px-2 py-1 text-sm font-mono"
+              className="flex-1 min-w-0 border border-black dark:border-gray-500 px-2 py-1 text-sm font-mono"
             />
             <button
               onClick={handleGoToLocus}
-              className="border border-black px-3 py-1 text-sm cursor-pointer hover:bg-gray-100"
+              className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 shrink-0"
             >
               Go
             </button>
@@ -419,7 +421,7 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
           BED  — feature annotations (e.g. repeat regions, peaks, custom intervals)
           VCF  — variant calls (e.g. GATK HaplotypeCaller output)
       */}
-      <div className="border border-black p-3 space-y-3">
+      <div className="border border-black dark:border-gray-500 p-3 space-y-3">
         <p className="text-sm font-semibold">Add track from local file</p>
 
         <div className="flex flex-wrap gap-4 items-start">
@@ -431,7 +433,7 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
             <select
               value={trackType}
               onChange={handleTrackTypeChange}
-              className="border border-black px-2 py-1 text-sm"
+              className="border border-black dark:border-gray-500 px-2 py-1 text-sm"
             >
               <option value="bam">BAM (aligned reads)</option>
               <option value="bed">BED (annotations / intervals)</option>
@@ -447,7 +449,7 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
               value={trackName}
               onChange={(e) => setTrackName(e.target.value)}
               placeholder="defaults to filename"
-              className="border border-black px-2 py-1 text-sm w-44"
+              className="border border-black dark:border-gray-500 px-2 py-1 text-sm w-full sm:w-44"
             />
           </div>
         </div>
@@ -501,7 +503,7 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
           <button
             onClick={handleAddTrack}
             disabled={!canAddTrack}
-            className="border border-black px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isAddingTrack ? "Loading…" : "Add Track"}
           </button>
@@ -524,7 +526,7 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
                 <span className="font-mono">{t.name}</span>
                 <button
                   onClick={() => handleRemoveTrack(t.name)}
-                  className="text-xs border border-black px-2 py-0.5 cursor-pointer hover:bg-gray-100"
+                  className="text-xs border border-black dark:border-gray-500 px-2 py-0.5 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   Remove
                 </button>
@@ -553,9 +555,11 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
           This is expected behavior — igv's styles are scoped to its own elements
           and should not affect the rest of the page.
       */}
+      {/* clamp(350px, 60vh, 600px): never smaller than 350px (enough for igv to
+          render), scales with viewport height on phones, caps at 600px on desktop. */}
       <div
         ref={containerRef}
-        style={{ width: "100%", height: "600px" }}
+        style={{ width: "100%", height: "clamp(350px, 60vh, 600px)" }}
       />
     </div>
   );

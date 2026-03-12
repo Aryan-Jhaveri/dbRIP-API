@@ -375,7 +375,10 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
           to the API which applies a SQL IN clause. Changing any filter resets to
           page 0 so the user doesn't land on a now-invalid page. */}
       <div className="mb-4 flex flex-wrap items-start gap-4">
-        <label className="text-sm">
+        {/* w-full on mobile so each filter fills its row; sm:w-auto lets them
+            sit side-by-side on wider screens. The select also gets w-full so
+            it fills its label container on mobile. */}
+        <label className="text-sm w-full sm:w-auto">
           <span className="font-semibold block mb-1">ME Type:</span>
           <select
             multiple
@@ -384,7 +387,7 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
               setMeTypes(Array.from(e.target.selectedOptions, (o) => o.value));
               setPageIndex(0);
             }}
-            className="border border-black dark:border-gray-500 px-2 py-1 text-sm h-24"
+            className="border border-black dark:border-gray-500 px-2 py-1 text-sm h-24 w-full sm:w-auto"
           >
             {ME_TYPE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -392,7 +395,7 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
           </select>
         </label>
 
-        <label className="text-sm">
+        <label className="text-sm w-full sm:w-auto">
           <span className="font-semibold block mb-1">Category:</span>
           <select
             multiple
@@ -401,7 +404,7 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
               setMeCategories(Array.from(e.target.selectedOptions, (o) => o.value));
               setPageIndex(0);
             }}
-            className="border border-black dark:border-gray-500 px-2 py-1 text-sm h-24"
+            className="border border-black dark:border-gray-500 px-2 py-1 text-sm h-24 w-full sm:w-auto"
           >
             {CATEGORY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -409,7 +412,7 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
           </select>
         </label>
 
-        <label className="text-sm">
+        <label className="text-sm w-full sm:w-auto">
           <span className="font-semibold block mb-1">Annotation:</span>
           <select
             multiple
@@ -418,7 +421,7 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
               setAnnotations(Array.from(e.target.selectedOptions, (o) => o.value));
               setPageIndex(0);
             }}
-            className="border border-black dark:border-gray-500 px-2 py-1 text-sm h-24"
+            className="border border-black dark:border-gray-500 px-2 py-1 text-sm h-24 w-full sm:w-auto"
           >
             {ANNOTATION_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>

@@ -88,7 +88,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="max-w-screen-2xl mx-auto px-4 py-6">
+    <div className="max-w-screen-2xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
       {/* ── Header ─────────────────────────────────────────────────────── */}
       {/*
         * The header row uses flex with justify-between so the dark mode toggle
@@ -97,7 +97,7 @@ export default function App() {
         */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-xl sm:text-2xl font-bold">
             dbRIP — Database of Retrotransposon Insertion Polymorphism
           </h1>
           <p className="mt-1 text-sm">
@@ -142,7 +142,7 @@ export default function App() {
       </nav>
 
       {/* ── Tab content ────────────────────────────────────────────────── */}
-      <div className="border border-t-0 border-black dark:border-gray-500 p-4 dark:bg-gray-900">
+      <div className="border border-t-0 border-black dark:border-gray-500 p-3 sm:p-4 dark:bg-gray-900">
         {activeTab === "interactive" && <InteractiveSearch onViewInIgv={handleViewInIgv} />}
         {activeTab === "file" && <FileSearch />}
         {activeTab === "batch" && <BatchSearch />}
