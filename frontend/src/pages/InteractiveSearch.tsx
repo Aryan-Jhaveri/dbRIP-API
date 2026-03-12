@@ -73,70 +73,16 @@ const POP_ORDER = [
   "AFR","AMR","EAS","EUR","SAS","Non_African","All",
 ];
 
-// ── Fixed-value filter options ───────────────────────────────────────────
-// These match the exact values stored in the database.
-
-const ME_TYPES = ["ALU", "LINE1", "SVA", "HERVK", "PP"];
-const ME_CATEGORIES = ["Reference", "Non-reference"];
-const ANNOTATIONS = [
-  "PROMOTER", "5_UTR", "EXON", "INTRONIC", "3_UTR",
-  "TERMINATOR", "INTERGENIC",
-];
-
-// ── Population options ───────────────────────────────────────────────────
-// 5 super-populations + 26 sub-populations from the 1000 Genomes Project.
-// Values match the population codes stored in the pop_frequencies table.
-
-const POPULATIONS = [
-  // Super-populations
-  { value: "AFR", label: "AFR — African" },
-  { value: "AMR", label: "AMR — Ad Mixed American" },
-  { value: "EAS", label: "EAS — East Asian" },
-  { value: "EUR", label: "EUR — European" },
-  { value: "SAS", label: "SAS — South Asian" },
-  // Sub-populations
-  { value: "ACB", label: "ACB — African Caribbean in Barbados" },
-  { value: "ASW", label: "ASW — Americans of African Ancestry in SW USA" },
-  { value: "BEB", label: "BEB — Bengali in Bangladesh" },
-  { value: "CDX", label: "CDX — Chinese Dai in Xishuangbanna, China" },
-  { value: "CEU", label: "CEU — Utah Residents (CEPH) with Northern and Western European Ancestry" },
-  { value: "CHB", label: "CHB — Han Chinese in Beijing, China" },
-  { value: "CHS", label: "CHS — Southern Han Chinese" },
-  { value: "CLM", label: "CLM — Colombians in Medellin, Colombia" },
-  { value: "ESN", label: "ESN — Esan in Nigeria" },
-  { value: "FIN", label: "FIN — Finnish in Finland" },
-  { value: "GBR", label: "GBR — British in England and Scotland" },
-  { value: "GIH", label: "GIH — Gujarati Indian in Houston, TX" },
-  { value: "GWD", label: "GWD — Gambian in Western Division, The Gambia" },
-  { value: "IBS", label: "IBS — Iberian Populations in Spain" },
-  { value: "ITU", label: "ITU — Indian Telugu in the UK" },
-  { value: "JPT", label: "JPT — Japanese in Tokyo, Japan" },
-  { value: "KHV", label: "KHV — Kinh in Ho Chi Minh City, Vietnam" },
-  { value: "LWK", label: "LWK — Luhya in Webuye, Kenya" },
-  { value: "MSL", label: "MSL — Mende in Sierra Leone" },
-  { value: "MXL", label: "MXL — Mexican Ancestry in Los Angeles, CA" },
-  { value: "PEL", label: "PEL — Peruvians in Lima, Peru" },
-  { value: "PJL", label: "PJL — Punjabi in Lahore, Pakistan" },
-  { value: "PUR", label: "PUR — Puerto Ricans in Puerto Rico" },
-  { value: "STU", label: "STU — Sri Lankan Tamil in the UK" },
-  { value: "TSI", label: "TSI — Toscani in Italy" },
-  { value: "YRI", label: "YRI — Yoruba in Ibadan, Nigeria" },
-  // Aggregate columns present in the pop_frequencies table
-  { value: "Non_African", label: "Non_African — All non-African populations" },
-  { value: "All", label: "All — All populations combined" },
-];
-
-// ── Min-frequency options ────────────────────────────────────────────────
-// Preset allele frequency thresholds. "" means "no filter" (show all).
-// Values are numbers that map directly to the API's min_freq param.
-
-const MIN_FREQ_OPTIONS = [
-  { value: "", label: "Any frequency" },
-  { value: "0.01", label: "≥ 1%" },
-  { value: "0.05", label: "≥ 5%" },
-  { value: "0.10", label: "≥ 10%" },
-  { value: "0.50", label: "≥ 50%" },
-];
+// ── Filter options ───────────────────────────────────────────────────────
+// Imported from the shared constants file so InteractiveSearch and BatchSearch
+// always show the same populations, ME types, annotations, etc.
+import {
+  POPULATIONS,
+  MIN_FREQ_OPTIONS,
+  ME_TYPE_OPTIONS,
+  CATEGORY_OPTIONS,
+  ANNOTATION_OPTIONS,
+} from "../constants/filters";
 
 // ── Column definitions ────────────────────────────────────────────────────
 // Defined outside the component (static constant) because they don't depend
@@ -440,8 +386,8 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
             }}
             className="border border-black px-2 py-1 text-sm h-24"
           >
-            {ME_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
+            {ME_TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </label>
@@ -457,8 +403,8 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
             }}
             className="border border-black px-2 py-1 text-sm h-24"
           >
-            {ME_CATEGORIES.map((c) => (
-              <option key={c} value={c}>{c}</option>
+            {CATEGORY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </label>
@@ -474,8 +420,8 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
             }}
             className="border border-black px-2 py-1 text-sm h-24"
           >
-            {ANNOTATIONS.map((a) => (
-              <option key={a} value={a}>{a}</option>
+            {ANNOTATION_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
         </label>

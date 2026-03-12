@@ -38,96 +38,15 @@
 import { useState, useMemo } from "react";
 import { useInsertions } from "../hooks/useInsertions";
 import { buildExportUrl, type ListInsertionsParams } from "../api/client";
-
-// ── Filter option definitions ────────────────────────────────────────────
-// Each group has a label (shown in the UI) and a list of options.
-// option.value is sent to the API, option.label is shown to the user.
-
-interface FilterOption {
-  value: string;
-  label: string;
-}
-
-const CATEGORIES: FilterOption[] = [
-  { value: "Reference", label: "Reference" },
-  { value: "Non-reference", label: "Non-reference" },
-];
-
-const ME_FAMILIES: FilterOption[] = [
-  { value: "ALU", label: "Alu" },
-  { value: "LINE1", label: "LINE1" },
-  { value: "SVA", label: "SVA" },
-  { value: "HERVK", label: "HERVK" },
-  { value: "PP", label: "Processed Pseudogene" },
-];
-
-const ANNOTATIONS: FilterOption[] = [
-  { value: "PROMOTER", label: "Promoter" },
-  { value: "5_UTR", label: "5_UTR" },
-  { value: "EXON", label: "Exon" },
-  { value: "INTRONIC", label: "Intronic" },
-  { value: "3_UTR", label: "3_UTR" },
-  { value: "TERMINATOR", label: "Terminator" },
-  { value: "INTERGENIC", label: "Intergenic" },
-  { value: "null", label: "Undetermined" },
-];
-
-const STRANDS: FilterOption[] = [
-  { value: "+", label: "Positive" },
-  { value: "-", label: "Negative" },
-  { value: "null", label: "Undetermined" },
-];
-
-// ── Population frequency options ─────────────────────────────────────────
-// 5 super-populations + 26 sub-populations from the 1000 Genomes Project.
-// Values match the population codes stored in the pop_frequencies table.
-// "" means "no population filter" (show all insertions regardless of freq).
-
-const POPULATIONS: FilterOption[] = [
-  // Super-populations
-  { value: "AFR", label: "AFR — African" },
-  { value: "AMR", label: "AMR — Ad Mixed American" },
-  { value: "EAS", label: "EAS — East Asian" },
-  { value: "EUR", label: "EUR — European" },
-  { value: "SAS", label: "SAS — South Asian" },
-  // Sub-populations
-  { value: "ACB", label: "ACB" },
-  { value: "ASW", label: "ASW" },
-  { value: "BEB", label: "BEB" },
-  { value: "CDX", label: "CDX" },
-  { value: "CEU", label: "CEU" },
-  { value: "CHB", label: "CHB" },
-  { value: "CHS", label: "CHS" },
-  { value: "CLM", label: "CLM" },
-  { value: "ESN", label: "ESN" },
-  { value: "FIN", label: "FIN" },
-  { value: "GBR", label: "GBR" },
-  { value: "GIH", label: "GIH" },
-  { value: "GWD", label: "GWD" },
-  { value: "IBS", label: "IBS" },
-  { value: "ITU", label: "ITU" },
-  { value: "JPT", label: "JPT" },
-  { value: "KHV", label: "KHV" },
-  { value: "LWK", label: "LWK" },
-  { value: "MSL", label: "MSL" },
-  { value: "MXL", label: "MXL" },
-  { value: "PEL", label: "PEL" },
-  { value: "PJL", label: "PJL" },
-  { value: "PUR", label: "PUR" },
-  { value: "STU", label: "STU" },
-  { value: "TSI", label: "TSI" },
-  { value: "YRI", label: "YRI" },
-];
-
-// Preset allele frequency thresholds for the min_freq dropdown.
-// "" maps to no filter; numeric strings are parsed to floats before sending.
-const MIN_FREQ_OPTIONS: FilterOption[] = [
-  { value: "", label: "Any frequency" },
-  { value: "0.01", label: "≥ 1%" },
-  { value: "0.05", label: "≥ 5%" },
-  { value: "0.10", label: "≥ 10%" },
-  { value: "0.50", label: "≥ 50%" },
-];
+import {
+  POPULATIONS,
+  MIN_FREQ_OPTIONS,
+  ME_TYPE_OPTIONS,
+  CATEGORY_OPTIONS,
+  ANNOTATION_OPTIONS,
+  STRAND_OPTIONS,
+  type FilterOption,
+} from "../constants/filters";
 
 const CHROMOSOMES: FilterOption[] = [
   ...Array.from({ length: 22 }, (_, i) => ({
@@ -202,22 +121,22 @@ export default function BatchSearch() {
   const [minFreq, setMinFreq] = useState("");
 
   // ── Build API params from selected filters ───────────────────────────
-  // Category/family/annotation: the API takes single values, so we only
-  // apply them when exactly one option is checked. Strand and chrom support
-  // comma-separated multi-values (e.g. strand="+,-", chrom="chr1,chr2").
+  // All multi-select groups (category, family, annotation, strand, chrom) are
+  // joined with commas — the API applies a SQL IN clause when it sees multiple
+  // values separated by commas. This mirrors how InteractiveSearch sends filters.
   //
   // WHY limit=1? We only need the total count, not the actual rows. The API
   // always returns the total regardless of limit. Fetching 1 row is cheaper
   // than fetching 50 just to read the count field.
   const params: ListInsertionsParams = useMemo(() => {
     const p: ListInsertionsParams = { limit: 1, offset: 0 };
-    if (categories.size === 1) p.me_category = [...categories][0];
-    if (meFamilies.size === 1) p.me_type = [...meFamilies][0];
-    if (annotations.size === 1) p.annotation = [...annotations][0];
-    if (strands.size > 0) p.strand = [...strands].join(",");
-    if (chromosomes.size > 0) p.chrom = [...chromosomes].join(",");
-    if (population) p.population = population;
-    if (population && minFreq) p.min_freq = parseFloat(minFreq);
+    if (categories.size > 0)  p.me_category = [...categories].join(",");
+    if (meFamilies.size > 0)  p.me_type     = [...meFamilies].join(",");
+    if (annotations.size > 0) p.annotation  = [...annotations].join(",");
+    if (strands.size > 0)     p.strand      = [...strands].join(",");
+    if (chromosomes.size > 0) p.chrom       = [...chromosomes].join(",");
+    if (population)           p.population  = population;
+    if (population && minFreq) p.min_freq   = parseFloat(minFreq);
     return p;
   }, [categories, meFamilies, annotations, strands, chromosomes, population, minFreq]);
 
@@ -241,13 +160,13 @@ export default function BatchSearch() {
   // comma-separated strings — the API's export endpoint accepts the same
   // multi-value format as the list endpoint.
   const exportParams: ListInsertionsParams = {};
-  if (categories.size === 1) exportParams.me_category = [...categories][0];
-  if (meFamilies.size === 1) exportParams.me_type = [...meFamilies][0];
-  if (annotations.size === 1) exportParams.annotation = [...annotations][0];
-  if (strands.size > 0) exportParams.strand = [...strands].join(",");
-  if (chromosomes.size > 0) exportParams.chrom = [...chromosomes].join(",");
-  if (population) exportParams.population = population;
-  if (population && minFreq) exportParams.min_freq = parseFloat(minFreq);
+  if (categories.size > 0)  exportParams.me_category = [...categories].join(",");
+  if (meFamilies.size > 0)  exportParams.me_type     = [...meFamilies].join(",");
+  if (annotations.size > 0) exportParams.annotation  = [...annotations].join(",");
+  if (strands.size > 0)     exportParams.strand      = [...strands].join(",");
+  if (chromosomes.size > 0) exportParams.chrom       = [...chromosomes].join(",");
+  if (population)           exportParams.population  = population;
+  if (population && minFreq) exportParams.min_freq   = parseFloat(minFreq);
   const exportUrl = buildExportUrl("csv", exportParams);
 
   return (
@@ -256,19 +175,19 @@ export default function BatchSearch() {
       <div className="flex-1">
         <CheckboxGroup
           label="By Category:"
-          options={CATEGORIES}
+          options={CATEGORY_OPTIONS}
           selected={categories}
           onChange={setCategories}
         />
         <CheckboxGroup
           label="By ME Family:"
-          options={ME_FAMILIES}
+          options={ME_TYPE_OPTIONS}
           selected={meFamilies}
           onChange={setMeFamilies}
         />
         <CheckboxGroup
           label="By Annotation:"
-          options={ANNOTATIONS}
+          options={ANNOTATION_OPTIONS}
           selected={annotations}
           onChange={setAnnotations}
         />
@@ -375,7 +294,7 @@ export default function BatchSearch() {
 
         <CheckboxGroup
           label="By Strand:"
-          options={STRANDS}
+          options={STRAND_OPTIONS}
           selected={strands}
           onChange={setStrands}
         />
