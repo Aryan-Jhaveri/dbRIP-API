@@ -37,7 +37,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { listInsertions, type ListInsertionsParams } from "../api/client";
+import { listInsertions, getInsertion, type ListInsertionsParams } from "../api/client";
 
 /**
  * Fetch a paginated list of insertions from the API.
@@ -54,5 +54,25 @@ export function useInsertions(params: ListInsertionsParams = {}) {
     queryKey: ["insertions", params],
     queryFn: () => listInsertions(params),
     placeholderData: (previousData) => previousData,
+  });
+}
+
+/**
+ * Fetch a single insertion by ID, including its full population frequency data.
+ *
+ * @param id - The insertion ID to fetch, or null/undefined to skip fetching.
+ *
+ * WHY enabled: !!id?
+ *   TanStack Query won't fire the request until `id` is a non-empty string.
+ *   This lets us call useInsertion(selectedId) in the component without
+ *   needing a conditional hook call (which React forbids).
+ *
+ * The result is cached by ID, so clicking the same row twice doesn't refetch.
+ */
+export function useInsertion(id: string | null | undefined) {
+  return useQuery({
+    queryKey: ["insertion", id],
+    queryFn: () => getInsertion(id!),
+    enabled: !!id,
   });
 }

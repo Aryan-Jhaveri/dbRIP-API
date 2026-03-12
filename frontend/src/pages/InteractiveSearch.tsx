@@ -49,10 +49,10 @@
  *   API endpoint that includes them.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import DataTable from "../components/DataTable";
-import { useInsertions } from "../hooks/useInsertions";
+import { useInsertions, useInsertion } from "../hooks/useInsertions";
 import { buildExportUrl } from "../api/client";
 import type { InsertionSummary } from "../types/insertion";
 
@@ -62,26 +62,6 @@ const COLUMN_HEADERS = [
   "ID", "Chromosome", "Start", "End", "Category", "ME Type",
   "RIP Type", "ME Subtype", "ME Length", "Strand", "TSD",
   "Annotation", "Variant Class",
-];
-
-// ── Column definitions ──────────────────────────────────────────────────
-// Each column maps an accessorKey (field name from the API response)
-// to a header label shown in the table. Order matches the Shiny app.
-
-const columns: ColumnDef<InsertionSummary, unknown>[] = [
-  { accessorKey: "id", header: "ID" },
-  { accessorKey: "chrom", header: "Chromosome" },
-  { accessorKey: "start", header: "Start" },
-  { accessorKey: "end", header: "End" },
-  { accessorKey: "me_category", header: "Category" },
-  { accessorKey: "me_type", header: "ME Type" },
-  { accessorKey: "rip_type", header: "RIP Type" },
-  { accessorKey: "me_subtype", header: "ME Subtype" },
-  { accessorKey: "me_length", header: "ME Length" },
-  { accessorKey: "strand", header: "Strand" },
-  { accessorKey: "tsd", header: "TSD" },
-  { accessorKey: "annotation", header: "Annotation" },
-  { accessorKey: "variant_class", header: "Variant Class" },
 ];
 
 // ── Fixed-value filter options ───────────────────────────────────────────
@@ -177,6 +157,52 @@ export default function InteractiveSearch() {
   // Feedback state for copy button ("Copied!" flash).
   const [copyFeedback, setCopyFeedback] = useState(false);
 
+  // Which insertion ID (if any) has its population panel expanded below the table.
+  // Clicking the same ID again collapses the panel (toggle behaviour).
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // ── Column definitions ────────────────────────────────────────────────
+  // Defined inside the component (with useMemo) so the ID cell renderer can
+  // read selectedId from state and call setSelectedId. If we defined columns
+  // outside the component, those callbacks wouldn't have access to state.
+  //
+  // useMemo re-creates the array only when selectedId changes, not on every render.
+  const columns = useMemo<ColumnDef<InsertionSummary, unknown>[]>(
+    () => [
+      {
+        accessorKey: "id",
+        header: "ID",
+        // Custom cell renderer: make the ID a clickable button that toggles
+        // the population frequency panel. Bold text = currently expanded.
+        cell: ({ getValue }) => {
+          const id = getValue() as string;
+          return (
+            <button
+              onClick={() => setSelectedId(id === selectedId ? null : id)}
+              className={`underline cursor-pointer text-left ${id === selectedId ? "font-bold" : ""}`}
+              title="Click to view population frequencies"
+            >
+              {id}
+            </button>
+          );
+        },
+      },
+      { accessorKey: "chrom", header: "Chromosome" },
+      { accessorKey: "start", header: "Start" },
+      { accessorKey: "end", header: "End" },
+      { accessorKey: "me_category", header: "Category" },
+      { accessorKey: "me_type", header: "ME Type" },
+      { accessorKey: "rip_type", header: "RIP Type" },
+      { accessorKey: "me_subtype", header: "ME Subtype" },
+      { accessorKey: "me_length", header: "ME Length" },
+      { accessorKey: "strand", header: "Strand" },
+      { accessorKey: "tsd", header: "TSD" },
+      { accessorKey: "annotation", header: "Annotation" },
+      { accessorKey: "variant_class", header: "Variant Class" },
+    ],
+    [selectedId]
+  );
+
   // ── Debounce search ──────────────────────────────────────────────────
   // Wait 300ms after the user stops typing before sending the request.
   // This prevents hammering the API on every keystroke.
@@ -189,6 +215,11 @@ export default function InteractiveSearch() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // ── Fetch population detail ───────────────────────────────────────────
+  // When the user clicks an ID, fetch the full InsertionDetail (which includes
+  // the populations array). useInsertion skips the fetch when selectedId is null.
+  const { data: detailData, isLoading: detailLoading } = useInsertion(selectedId);
 
   // ── Fetch data ───────────────────────────────────────────────────────
   // All filtering is server-side. The API accepts comma-separated values for
@@ -412,6 +443,65 @@ export default function InteractiveSearch() {
         onSelectionChange={setSelectedRows}
       />
 
+      {/* ── Population frequencies panel ────────────────────────────────── */}
+      {/* Appears below the table when the user clicks an ID.
+          Shows the 33 individual + 7 super-population allele frequencies for
+          that insertion, sourced from GET /v1/insertions/{id}.
+          Click the same ID again (or "Close") to collapse the panel. */}
+      {selectedId && (
+        <div className="mt-6 border border-black p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-sm">
+              Population Frequencies — {selectedId}
+            </h2>
+            <button
+              onClick={() => setSelectedId(null)}
+              className="text-sm border border-black px-2 py-0.5 cursor-pointer hover:bg-gray-100"
+            >
+              Close
+            </button>
+          </div>
+
+          {detailLoading ? (
+            <p className="text-sm">Loading...</p>
+          ) : detailData ? (
+            <div className="overflow-x-auto">
+              {/*
+               * Two-column table: Population code | Allele Frequency.
+               * The API returns populations in the order they appear in the DB
+               * (individual pops first, then super-pops — matching the manifest).
+               * AF values are in [0, 1]; null means no data for that population.
+               */}
+              <table className="border-collapse border border-black text-sm">
+                <thead>
+                  <tr className="border-b border-black bg-white">
+                    <th className="border border-black px-3 py-1 text-left font-semibold">
+                      Population
+                    </th>
+                    <th className="border border-black px-3 py-1 text-left font-semibold">
+                      Allele Frequency
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detailData.populations.map((pf) => (
+                    <tr
+                      key={pf.population}
+                      className="border-b border-black hover:bg-gray-50"
+                    >
+                      <td className="border border-black px-3 py-1">{pf.population}</td>
+                      <td className="border border-black px-3 py-1">
+                        {/* Show 4 decimal places for precision; "—" when null */}
+                        {pf.af !== null ? pf.af.toFixed(4) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      )}
 
     </div>
   );
