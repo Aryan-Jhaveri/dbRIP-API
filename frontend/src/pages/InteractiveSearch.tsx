@@ -45,11 +45,11 @@
  *   does NOT include the 33 population frequency columns. Those are only
  *   in InsertionDetail (GET /v1/insertions/{id}). This is intentional —
  *   sending 33 extra floats per row × 50 rows = 1,650 extra values per
- *   page load. If we need pop freqs in the table later, we'd add a new
- *   API endpoint that includes them.
+ *   page load. Instead, users can check a row's checkbox to expand an inline
+ *   population frequency table fetched on demand.
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import DataTable from "../components/DataTable";
 import { useInsertions, useInsertion } from "../hooks/useInsertions";
@@ -135,6 +135,87 @@ const MIN_FREQ_OPTIONS = [
   { value: "0.50", label: "≥ 50%" },
 ];
 
+// ── Column definitions ────────────────────────────────────────────────────
+// Defined outside the component (static constant) because they don't depend
+// on any component state. Plain accessorKey → header pairs; no custom renderers.
+// Population frequencies are now shown via the checkbox expand system, not a popup.
+
+const columns: ColumnDef<InsertionSummary, unknown>[] = [
+  { accessorKey: "id", header: "ID" },
+  { accessorKey: "chrom", header: "Chromosome" },
+  { accessorKey: "start", header: "Start" },
+  { accessorKey: "end", header: "End" },
+  { accessorKey: "me_category", header: "Category" },
+  { accessorKey: "me_type", header: "ME Type" },
+  { accessorKey: "rip_type", header: "RIP Type" },
+  { accessorKey: "me_subtype", header: "ME Subtype" },
+  { accessorKey: "me_length", header: "ME Length" },
+  { accessorKey: "strand", header: "Strand" },
+  { accessorKey: "tsd", header: "TSD" },
+  { accessorKey: "annotation", header: "Annotation" },
+  { accessorKey: "variant_class", header: "Variant Class" },
+];
+
+// ── PopFreqTable ─────────────────────────────────────────────────────────
+//
+// Renders a horizontal population frequency table for a single insertion.
+// This is shown inline below a row when the user checks that row's checkbox.
+//
+// WHY A SEPARATE COMPONENT?
+//   Each expanded row needs to call useInsertion(id) independently. React's
+//   rules of hooks require hook calls to be at the top level of a component,
+//   not inside a callback or .map(). By making PopFreqTable its own component,
+//   each instance gets its own hook call and its own TanStack Query cache entry.
+//
+// CACHING:
+//   useInsertion uses TanStack Query with the insertion ID as the cache key.
+//   If the user already expanded this row on a previous visit (or the old popup
+//   system loaded it), the data is already cached and renders instantly.
+
+function PopFreqTable({ id }: { id: string }) {
+  const { data, isLoading } = useInsertion(id);
+
+  if (isLoading) return <p className="text-xs">Loading...</p>;
+  if (!data) return null;
+
+  return (
+    /*
+     * Horizontal layout: population codes as <th> in the header row,
+     * AF values as <td> in the data row. With 33 columns this is wider
+     * than the card, so overflow-x: auto lets the user scroll sideways.
+     * Each cell is intentionally compact (px-2 py-0.5) to fit more columns.
+     */
+    <div className="overflow-x-auto">
+      <table className="border-collapse border border-black text-xs whitespace-nowrap">
+        <thead>
+          <tr className="bg-white border-b border-black">
+            {data.populations.map((pf) => (
+              <th
+                key={pf.population}
+                className="border border-black px-2 py-0.5 font-semibold text-center"
+              >
+                {pf.population}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            {data.populations.map((pf) => (
+              <td
+                key={pf.population}
+                className="border border-black px-2 py-0.5 text-center"
+              >
+                {pf.af !== null ? pf.af.toFixed(4) : "—"}
+              </td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 
 export default function InteractiveSearch() {
@@ -161,79 +242,12 @@ export default function InteractiveSearch() {
   const [meCategories, setMeCategories] = useState<string[]>([]);
   const [annotations, setAnnotations] = useState<string[]>([]);
 
-  // Currently selected rows (for the "Copy selected" button).
+  // Currently selected rows (row-click blue highlight), feeds the Copy button.
+  // Updated by DataTable's onSelectionChange whenever the user clicks rows.
   const [selectedRows, setSelectedRows] = useState<InsertionSummary[]>([]);
 
   // Copy button state machine: idle → loading (fetching pop data) → done (flash "Copied!") → idle
   const [copyState, setCopyState] = useState<"idle" | "loading" | "done">("idle");
-
-  // Which insertion ID (if any) has its population popup open.
-  // Clicking the same ID again closes the popup (toggle behaviour).
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  // Viewport-relative position where the popup should appear (anchored to the clicked ID button).
-  // null when no popup is open.
-  const [popupAnchor, setPopupAnchor] = useState<{ top: number; left: number } | null>(null);
-
-  // Ref on the popup div for click-outside detection.
-  const popupRef = useRef<HTMLDivElement>(null);
-
-  // ── Column definitions ────────────────────────────────────────────────
-  // Defined inside the component (with useMemo) so the ID cell renderer can
-  // read selectedId from state and call setSelectedId. If we defined columns
-  // outside the component, those callbacks wouldn't have access to state.
-  //
-  // useMemo re-creates the array only when selectedId changes, not on every render.
-  const columns = useMemo<ColumnDef<InsertionSummary, unknown>[]>(
-    () => [
-      {
-        accessorKey: "id",
-        header: "ID",
-        // Custom cell renderer: make the ID a clickable button that opens a
-        // floating popup showing population frequencies. Bold = currently open.
-        // stopPropagation prevents the document click-outside handler from
-        // immediately closing the popup that this click just opened.
-        cell: ({ getValue }) => {
-          const id = getValue() as string;
-          return (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (id === selectedId) {
-                  setSelectedId(null);
-                  setPopupAnchor(null);
-                } else {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  // Clamp left so the popup doesn't overflow the right edge of the viewport.
-                  const POPUP_WIDTH = 640;
-                  const left = Math.min(rect.left, window.innerWidth - POPUP_WIDTH - 16);
-                  setPopupAnchor({ top: rect.bottom + 6, left });
-                  setSelectedId(id);
-                }
-              }}
-              className={`underline cursor-pointer text-left ${id === selectedId ? "font-bold" : ""}`}
-              title="Click to view population frequencies"
-            >
-              {id}
-            </button>
-          );
-        },
-      },
-      { accessorKey: "chrom", header: "Chromosome" },
-      { accessorKey: "start", header: "Start" },
-      { accessorKey: "end", header: "End" },
-      { accessorKey: "me_category", header: "Category" },
-      { accessorKey: "me_type", header: "ME Type" },
-      { accessorKey: "rip_type", header: "RIP Type" },
-      { accessorKey: "me_subtype", header: "ME Subtype" },
-      { accessorKey: "me_length", header: "ME Length" },
-      { accessorKey: "strand", header: "Strand" },
-      { accessorKey: "tsd", header: "TSD" },
-      { accessorKey: "annotation", header: "Annotation" },
-      { accessorKey: "variant_class", header: "Variant Class" },
-    ],
-    [selectedId]
-  );
 
   // ── Debounce search ──────────────────────────────────────────────────
   // Wait 300ms after the user stops typing before sending the request.
@@ -247,38 +261,6 @@ export default function InteractiveSearch() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
-
-  // ── Close popup on Escape or click-outside ───────────────────────────
-  useEffect(() => {
-    if (!selectedId) return;
-
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setSelectedId(null);
-        setPopupAnchor(null);
-      }
-    };
-    // Click-outside: close if the click lands outside the popup div.
-    // The ID button uses stopPropagation() so it never reaches this listener.
-    const handleClickOutside = (e: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        setSelectedId(null);
-        setPopupAnchor(null);
-      }
-    };
-
-    document.addEventListener("keydown", handleKey);
-    document.addEventListener("click", handleClickOutside);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("click", handleClickOutside);
-    };
-  }, [selectedId]);
-
-  // ── Fetch population detail ───────────────────────────────────────────
-  // When the user clicks an ID, fetch the full InsertionDetail (which includes
-  // the populations array). useInsertion skips the fetch when selectedId is null.
-  const { data: detailData, isLoading: detailLoading } = useInsertion(selectedId);
 
   // ── Fetch data ───────────────────────────────────────────────────────
   // All filtering is server-side. The API accepts comma-separated values for
@@ -323,8 +305,8 @@ export default function InteractiveSearch() {
   //   The summary rows shown in the table don't include population frequencies
   //   (too expensive to load for all 50 rows per page). When copying, we fetch
   //   the detail for each selected ID in parallel. TanStack Query caches these,
-  //   so if the user already clicked an ID to view its popup, that detail is
-  //   already cached and the copy is instant for that row.
+  //   so if the user already expanded a row's checkbox to view its frequencies,
+  //   that detail is already cached and the copy is instant for that row.
   const handleCopySelected = useCallback(async () => {
     setCopyState("loading");
     try {
@@ -501,7 +483,7 @@ export default function InteractiveSearch() {
         >
           Download CSV
         </a>
-        {/* Copy selected rows as TSV (summary + pop columns) — shown when ≥1 row checked */}
+        {/* Copy selected rows as TSV (summary + pop columns) — shown when ≥1 row clicked */}
         {selectedRows.length > 0 && (
           <button
             onClick={handleCopySelected}
@@ -520,7 +502,9 @@ export default function InteractiveSearch() {
       {/* ── Data table ─────────────────────────────────────────────────── */}
       {/* data.results comes directly from the API — no client-side filtering.
           data.total is the server-side count of matching rows, so pagination
-          is always accurate. */}
+          is always accurate.
+          onSelectionChange: driven by row clicks (blue highlight) in DataTable.
+          renderExpandedRow: shows an inline PopFreqTable when a checkbox is checked. */}
       <DataTable
         columns={columns}
         data={data?.results ?? []}
@@ -530,74 +514,8 @@ export default function InteractiveSearch() {
         onPaginationChange={handlePaginationChange}
         isLoading={isLoading}
         onSelectionChange={setSelectedRows}
+        renderExpandedRow={(row) => <PopFreqTable id={(row as InsertionSummary).id} />}
       />
-
-      {/* ── Population frequencies popup ─────────────────────────────────── */}
-      {/* Floating card anchored to the clicked ID cell via position:fixed.
-          Uses viewport-relative coordinates from getBoundingClientRect() so it
-          stays correctly positioned even when the table is scrolled.
-          Closes on: Close button, Escape key, or clicking outside the card. */}
-      {selectedId && popupAnchor && (
-        <div
-          ref={popupRef}
-          style={{ position: "fixed", top: popupAnchor.top, left: popupAnchor.left, zIndex: 50, width: 640 }}
-          className="bg-white border border-black shadow-lg p-3"
-        >
-          {/* Header row: ID label + Close button */}
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-semibold text-sm">
-              Population Frequencies — {selectedId}
-            </span>
-            <button
-              onClick={() => { setSelectedId(null); setPopupAnchor(null); }}
-              className="text-sm border border-black px-2 py-0.5 cursor-pointer hover:bg-gray-100 ml-4 flex-shrink-0"
-            >
-              Close
-            </button>
-          </div>
-
-          {/* Content: loading spinner, or horizontal table */}
-          {detailLoading ? (
-            <p className="text-sm">Loading...</p>
-          ) : detailData ? (
-            /*
-             * Horizontal layout: population codes as <th> in the header row,
-             * AF values as <td> in the data row. With 33 columns this is wider
-             * than the card, so overflow-x: auto lets the user scroll sideways.
-             * Each cell is intentionally compact (px-2 py-0.5) to fit more columns.
-             */
-            <div className="overflow-x-auto">
-              <table className="border-collapse border border-black text-xs whitespace-nowrap">
-                <thead>
-                  <tr className="bg-white border-b border-black">
-                    {detailData.populations.map((pf) => (
-                      <th
-                        key={pf.population}
-                        className="border border-black px-2 py-0.5 font-semibold text-center"
-                      >
-                        {pf.population}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    {detailData.populations.map((pf) => (
-                      <td
-                        key={pf.population}
-                        className="border border-black px-2 py-0.5 text-center"
-                      >
-                        {pf.af !== null ? pf.af.toFixed(4) : "—"}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </div>
-      )}
-
     </div>
   );
 }
