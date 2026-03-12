@@ -6,45 +6,39 @@ Below are the next things to build, roughly in priority order.
 
 ## To-Do
 
-- [ ] Front end has no filters for the pop_freq table, for RIP filtered by pop samples. Need to add filters for that in Interactive Search, and Batch Search. 
+- [ ] Front end has no filters for the pop_freq table, for RIP filtered by pop samples. Need to add filters for that in Interactive Search, and Batch Search.
 
-- Fix interactive search and filtering not working → Related to the InteractiveSearch + client-side regex filter work.     
-    - Even if a search item interactive search is added say 66, it will pull some results
-    - Writing something in the seearch field doesn't work, in terms of filtering truly
-    - If for instace INTRONIC is entered in search bar, PAges 1-29 will show only INTRONIC entries, but pages 30-32 are empty, with enteries returning in from page 34, i.e, when someone types something and filters are on, even then sometimes the filters show empty pages.
-    - investigate if client side filtering
+- ~~Fix interactive search and filtering not working~~ — DONE. Search is fully server-side (LIKE across 8 columns with debounce). Fixed-value filters (ME Type, Category, Annotation) use `<select multiple>` → SQL `IN` clause. Population + min_freq filters wire directly to API. No empty-page bug.
 
-- The should ideally either be exactly to the total table lentths and be dynamic, or a simple string that shows approxmiate to leave room for people to add enteries, and not have the description not be exactly factual.
+- ~~The row count description~~ — DONE. "Showing X to Y of Z entries" is dynamically computed from API `total`.
 
-- Add row selection → Users can select rows and copy to clipboard or download as CSV.                           
-                
-- Allow filter buttons on column headers → Column header filter dropdowns (e.g., filter by ALU, SVA) + sort     
+- ~~Add row selection~~ — DONE. Row-click highlights blue (`bg-blue-200`); shift+click for range; drag-to-select (hold and sweep) with auto select/deselect mode. Selected rows feed the "Copy N selected rows" button which fetches full detail (inc. pop freqs) and writes TSV to clipboard.
 
-- Add the ability to jump to specific pages in interactive search
+- [ ] Allow filter buttons on column headers → Column header filter dropdowns (e.g., filter by ALU, SVA) + sort
 
-- Add mkdocs (docs/*md's) to the frontend
-    - Add docs and guide for cli
-    - Add docs and guide for API
-    - Link github
+- ~~Add the ability to jump to specific pages~~ — DONE. "Go to:" input on the pagination bar.
 
-- File search page is empty, and needs the fueature to upload files to find matching enteries
+- ~~Add mkdocs (docs/*md's) to the frontend~~ — DONE. Docs tab in the frontend renders the four MkDocs pages (index, api-reference, cli, biology).
 
-- - [ ] Add Predefined values to exports? https://fastapi.tiangolo.com/tutorial/path-params/#predefined-values, so vcf, bed calls are restrcited to certain output types. Also look inot adding predefined values to other dropdowns for API
+- ~~File search page is empty~~ — DONE. FileSearch.tsx has file upload (BED/CSV/TSV), window input, and results table.
 
-- [ ] Look into enums for plus minus strand, to format them as
+- ~~Population frequency popup~~ — REPLACED. Popup removed. Pop freqs are now shown inline as a nested row below each data row when the user checks the row's checkbox. Header checkbox expands/collapses all rows on the page. TanStack Query caches fetched detail by ID.
+
+- [ ] Add Predefined values to exports (`FastAPI Enum` / `Literal`) so vcf, bed calls are restricted to certain output types. Also look into predefined values for other dropdowns in the API.
+
+- [ ] Look into enums for plus/minus strand:
 
         class Strand(str, Enum):
             plus = "+"
             minus = "-"
 
-        # If you need to send "+" to a different tool:
         raw_strand = Strand.plus.value  # Returns "+"
 
     if necessary
 
-- [ ] For error handling in query parameters, need fall backs or docs for,
-  
-  Question: if the user doesn't enter `?` or doesnt enter relevant paramenters after `?`, how do different calls handle this gracefully? Do the calls tell what the default fallbacks are, do they need to be removed. 
+- [ ] For error handling in query parameters, need fallbacks or docs for:
+
+  Question: if the user doesn't enter `?` or doesn't enter relevant parameters after `?`, how do different calls handle this gracefully? Do the calls tell what the default fallbacks are?
            
 ---
 
@@ -152,35 +146,25 @@ dbrip export --format bed | bedtools intersect -a - -b peaks.bed
 
 ---
 
-## 4. Web Frontend
+## 4. Web Frontend — DONE (core)
 
-**What:** A browser-based interface for researchers who don't want to write code.
+**Status:** Core complete. Vite + React + TypeScript + TanStack Table/Query + Tailwind.
 
-**Options:**
+**Files:** `frontend/src/`
 
-### Option A: Simple search page
-- Single-page app with a search form
-- Region input, ME type dropdown, population selector, frequency sliders
-- Results table with export buttons
-- Minimal — could be built with vanilla HTML/JS or React
+**Features shipped:**
+- Interactive Search: server-side search + 6 filter types + pagination + "Go to page" + Download CSV + Copy selected rows (TSV with pop freqs) + drag-to-select rows + inline pop freq expand via checkbox
+- File Search: BED/CSV/TSV upload + window overlap + results table + download
+- Batch Search: checkbox filters (ME type, category, annotation, strand, chrom) + download
+- Docs tab: renders the four MkDocs pages (index, api-reference, cli, biology)
+- `DataTable` component: generic, reusable, two independent interaction systems (row-click = copy selection; checkbox = inline expand)
 
-### Option B: Genome browser integration
-- Embed a genome browser (like [IGV.js](https://github.com/igvteam/igv.js) or [Gosling](https://gosling-lang.org/))
-- Show insertions as tracks on the genome
-- Click an insertion to see details and population frequencies
-- More complex but much more useful for researchers
+**Stack:** `frontend/` — `npm run dev` for local, `npx tsc --noEmit` to type-check.
 
-### Option C: Shiny app (R)
-- Replace the existing Shiny dbRIP app with one backed by this API
-- Familiar to the lab, easy for R users to modify
-- Could use the API directly via `httr` or `httr2`
-
-**Stack considerations:**
-- The API already handles CORS (`allow_origins=["*"]`), so any frontend can talk to it
-- The API returns JSON, which all frontend frameworks can consume
-- Export endpoints return files directly — frontend just needs download links
-
-**Effort:** Large — depends heavily on which option and how polished it needs to be.
+**Remaining frontend work:**
+- Column header sort + filter dropdowns
+- IGV.js genome browser (stretch goal)
+- Docker + FastAPI `StaticFiles` mount for single-process deployment
 
 ---
 

@@ -153,6 +153,24 @@ export default function DataTable<TData>({
   const lastRowClickRef = useRef<number | null>(null);
   const lastCheckboxClickRef = useRef<number | null>(null);
 
+  // ── Drag-to-select state ───────────────────────────────────────────────
+  // isDraggingRef: true while the user holds the mouse button down over the tbody.
+  // dragModeRef:   "select" if the drag started on an unselected row (adds rows),
+  //                "deselect" if it started on a selected row (removes rows).
+  // This lets the user sweep through multiple rows in one motion to select or
+  // deselect a batch, rather than clicking each row individually.
+  const isDraggingRef = useRef(false);
+  const dragModeRef = useRef<"select" | "deselect">("select");
+
+  // Stop dragging when the mouse button is released anywhere in the document.
+  // We listen on the document (not the table) so releasing outside the table
+  // also ends the drag — prevents getting "stuck" in drag mode.
+  useEffect(() => {
+    const handleMouseUp = () => { isDraggingRef.current = false; };
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => document.removeEventListener("mouseup", handleMouseUp);
+  }, []);
+
   // Reset both sets and both anchors whenever the page data changes.
   // If we didn't do this, row IDs from the previous page would linger in the sets,
   // and the next page's rows (which reuse the same IDs "0"–"49") would appear
@@ -201,16 +219,26 @@ export default function DataTable<TData>({
   // Used for colSpan in loading/empty state cells.
   const totalCols = columns.length + (renderExpandedRow ? 1 : 0);
 
-  // ── Row-click handler (blue highlight / copy system) ─────────────────
+  // ── Row mousedown handler (blue highlight / copy system) ─────────────
   //
-  // Normal click: toggles this row in selectedIds (on → off → on).
-  // Shift+click: adds every row between lastRowClickRef and this row to selectedIds.
-  //   (We only ADD during shift-click, never remove — matches spreadsheet behaviour.)
-  // We always update the anchor ref so the next shift-click has a valid range start.
-  function handleRowClick(e: React.MouseEvent, rowId: string, rowIndex: number) {
+  // We use onMouseDown (not onClick) so drag-to-select can start immediately
+  // without waiting for mouseup. preventDefault() stops the browser from
+  // starting a text-selection drag, which would interfere with row selection.
+  //
+  // Normal press:    toggle this row; set dragMode for the subsequent drag.
+  // Shift+press:     add all rows in [lastRowClickRef, this row] range to selectedIds.
+  // After either:    update lastRowClickRef so the next shift-press has a valid anchor.
+  function handleRowMouseDown(e: React.MouseEvent, rowId: string, rowIndex: number) {
+    if (e.button !== 0) return; // ignore right-click / middle-click
+    e.preventDefault(); // prevent browser text-selection drag
+
+    isDraggingRef.current = true;
+
     if (e.shiftKey && lastRowClickRef.current !== null) {
+      // Shift+press: expand selection to the range — always "select" direction.
       const lo = Math.min(lastRowClickRef.current, rowIndex);
       const hi = Math.max(lastRowClickRef.current, rowIndex);
+      dragModeRef.current = "select";
       setSelectedIds((prev) => {
         const next = new Set(prev);
         rows.forEach((r) => {
@@ -219,14 +247,41 @@ export default function DataTable<TData>({
         return next;
       });
     } else {
+      // Normal press: toggle this row; drag mode follows the initial toggle direction.
+      const isSelected = selectedIds.has(rowId);
+      dragModeRef.current = isSelected ? "deselect" : "select";
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        if (next.has(rowId)) next.delete(rowId);
+        if (isSelected) next.delete(rowId);
         else next.add(rowId);
         return next;
       });
     }
     lastRowClickRef.current = rowIndex;
+  }
+
+  // ── Row mouseenter handler (drag continuation) ────────────────────────
+  //
+  // While the mouse button is held (isDraggingRef=true), entering a new row
+  // applies the dragMode that was set on the initial mousedown. This lets the
+  // user sweep through rows in one motion to select or deselect them in bulk.
+  // We return the previous Set unchanged if it's already in the right state to
+  // avoid unnecessary re-renders (React bails out if the reference is the same).
+  function handleRowMouseEnter(rowId: string) {
+    if (!isDraggingRef.current) return;
+    setSelectedIds((prev) => {
+      if (dragModeRef.current === "select") {
+        if (prev.has(rowId)) return prev;
+        const next = new Set(prev);
+        next.add(rowId);
+        return next;
+      } else {
+        if (!prev.has(rowId)) return prev;
+        const next = new Set(prev);
+        next.delete(rowId);
+        return next;
+      }
+    });
   }
 
   // ── Checkbox click handler (expand / collapse system) ─────────────────
@@ -433,21 +488,26 @@ export default function DataTable<TData>({
 
                 // The main data row.
                 // - cursor-pointer signals the whole row is clickable (for blue highlight).
-                // - bg-blue-100 when selected, hover:bg-blue-50 always so there's visual
-                //   feedback on hover whether or not the row is already selected.
+                // - onMouseDown starts selection / drag; onMouseEnter continues a drag.
+                // - bg-blue-200 when selected (deeper blue), hover:bg-blue-50 when not.
                 const dataRow = (
                   <tr
                     key={row.id}
-                    onClick={(e) => handleRowClick(e, row.id, row.index)}
+                    onMouseDown={(e) => handleRowMouseDown(e, row.id, row.index)}
+                    onMouseEnter={() => handleRowMouseEnter(row.id)}
                     className={`border-b border-black cursor-pointer ${
-                      isSelected ? "bg-blue-100 hover:bg-blue-50" : "hover:bg-blue-50"
+                      isSelected ? "bg-blue-200" : "hover:bg-blue-50"
                     }`}
                   >
                     {/* Per-row expand checkbox — only when renderExpandedRow is provided.
-                        stopPropagation is handled inside handleCheckboxClick so this click
-                        doesn't also trigger the row's onClick (blue highlight). */}
+                        onMouseDown stopPropagation prevents the row's drag handler from
+                        firing when the user clicks the checkbox. The checkbox uses its own
+                        handleCheckboxClick (onClick) for toggle + shift-range logic. */}
                     {renderExpandedRow && (
-                      <td className="border border-black px-2 py-1 w-8 text-center">
+                      <td
+                        className="border border-black px-2 py-1 w-8 text-center"
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
                         <input
                           type="checkbox"
                           checked={isExpanded}
