@@ -1,15 +1,18 @@
 # Next Steps — What to Build on Top of the API
 
-The core API is working: ingest pipeline, database, 7 endpoints, 60 tests (13 ingest + 26 API + 21 CLI).
+The core API is working: ingest pipeline, database, 7 endpoints, 60 tests (13+ ingest + 26+ API + 21+ CLI). 
 Below are the next things to build, roughly in priority order.
 
 
 ## Other To-Do
 
+- [ ] Front end has no filters for the pop_freq table, for RIP filtered by pop samples. Need to add filters for that in Interactive Search, and Batch Search. 
+
 - Fix interactive search and filtering not working → Related to the InteractiveSearch + client-side regex filter work.     
     - Even if a search item interactive search is added say 66, it will pull some results
     - Writing something in the seearch field doesn't work, in terms of filtering truly
     - If for instace INTRONIC is entered in search bar, PAges 1-29 will show only INTRONIC entries, but pages 30-32 are empty, with enteries returning in from page 34, i.e, when someone types something and filters are on, even then sometimes the filters show empty pages.
+    - investigate if client side filtering
 
 - The should ideally either be exactly to the total table lentths and be dynamic, or a simple string that shows approxmiate to leave room for people to add enteries, and not have the description not be exactly factual.
 
