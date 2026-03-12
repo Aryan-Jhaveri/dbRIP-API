@@ -18,10 +18,11 @@
  *   - Plain text title and description
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import InteractiveSearch from "./pages/InteractiveSearch";
 import FileSearch from "./pages/FileSearch";
 import BatchSearch from "./pages/BatchSearch";
+import IgvViewer from "./pages/IgvViewer";
 import ApiRef from "./pages/ApiRef";
 import CliRef from "./pages/CliRef";
 
@@ -30,7 +31,7 @@ import CliRef from "./pages/CliRef";
  * Using a union type instead of an enum because it's simpler and
  * TypeScript can still enforce that only valid values are used.
  */
-type Tab = "interactive" | "file" | "batch" | "api-ref" | "cli-ref";
+type Tab = "interactive" | "file" | "batch" | "igv" | "api-ref" | "cli-ref";
 
 /**
  * Tab metadata — label shown in the tab bar, and which tab it corresponds to.
@@ -39,6 +40,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "interactive", label: "Interactive Search" },
   { id: "file", label: "File Search" },
   { id: "batch", label: "Batch Search" },
+  { id: "igv", label: "IGV Viewer" },
   { id: "api-ref", label: "API Reference" },
   { id: "cli-ref", label: "CLI Reference" },
 ];
@@ -46,6 +48,19 @@ const TABS: { id: Tab; label: string }[] = [
 export default function App() {
   // Track which tab is currently active (default: Interactive Search)
   const [activeTab, setActiveTab] = useState<Tab>("interactive");
+
+  // Locus passed to the IGV viewer when the user clicks "View in IGV" in
+  // InteractiveSearch. Stored here (not in IgvViewer) because App.tsx owns
+  // the tab-switching logic — it needs to switch to the igv tab AND pass the
+  // locus in the same action.
+  const [igvLocus, setIgvLocus] = useState<string | null>(null);
+
+  // Called by InteractiveSearch when the user clicks "View in IGV" on a row.
+  // Switches to the IGV tab and sets the locus prop on IgvViewer.
+  const handleViewInIgv = useCallback((locus: string) => {
+    setIgvLocus(locus);
+    setActiveTab("igv");
+  }, []);
 
   return (
     <div className="max-w-screen-2xl mx-auto px-4 py-6">
@@ -77,9 +92,29 @@ export default function App() {
 
       {/* ── Tab content ────────────────────────────────────────────────── */}
       <div className="border border-t-0 border-black p-4">
-        {activeTab === "interactive" && <InteractiveSearch />}
+        {activeTab === "interactive" && <InteractiveSearch onViewInIgv={handleViewInIgv} />}
         {activeTab === "file" && <FileSearch />}
         {activeTab === "batch" && <BatchSearch />}
+
+        {/*
+          WHY IgvViewer USES display:none INSTEAD OF CONDITIONAL RENDERING:
+          The other tabs use `{activeTab === "..." && <Component />}` which
+          unmounts the component when its tab is inactive. This is fine for
+          data tables (they re-fetch on mount).
+
+          IgvViewer is different: igv.js takes ~1-2 seconds to initialize,
+          and any BAM/BED tracks the user loaded would be lost on unmount.
+          Keeping IgvViewer mounted (but hidden) preserves the browser state
+          across tab switches — the user can navigate in InteractiveSearch
+          and return to IGV with their tracks still loaded.
+
+          The `locus` prop is still updated when the user clicks "View in IGV",
+          which triggers navigation even while the tab is hidden.
+        */}
+        <div style={{ display: activeTab === "igv" ? "block" : "none" }}>
+          <IgvViewer locus={igvLocus ?? undefined} />
+        </div>
+
         {activeTab === "api-ref" && <ApiRef />}
         {activeTab === "cli-ref" && <CliRef />}
       </div>
