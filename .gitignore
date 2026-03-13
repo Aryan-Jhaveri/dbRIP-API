@@ -25,6 +25,10 @@ NOTEBOOK/
 .env
 
 
+# MCP server
+mcp/node_modules/
+mcp/dist/
+
 ## CLAUDE
 CLAUDE.md
 
