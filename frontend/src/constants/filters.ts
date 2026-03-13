@@ -138,14 +138,92 @@ export const STRAND_OPTIONS: FilterOption[] = [
 //   are cross-population aggregates, not a super-pop + sub-pops pair.
 //
 // VERIFIED AGAINST: data/manifests/dbrip_v1.yaml population_columns
-//   Aggregates: 2 cols | AFR: 8 cols | AMR: 5 cols | EAS: 6 cols |
-//   EUR: 6 cols | SAS: 6 cols  →  total 33 ✓
+//   Aggregates: 7 cols (2 cross-continental + 5 super-pops) |
+//   AFR sub: 7 cols | AMR sub: 4 cols | EAS sub: 5 cols |
+//   EUR sub: 5 cols | SAS sub: 5 cols  →  total 33 ✓
+//
+// WHY SUPER-POPS IN AGGREGATES?
+//   AFR/AMR/EAS/EUR/SAS are pooled frequencies across their sub-populations,
+//   so they are aggregate values just like "All" and "Non_African". Grouping
+//   them together means toggling "Aggregates" shows every summary-level
+//   number at once, while the regional toggles show only granular sub-pop
+//   breakdowns without a mixed aggregate column in the middle.
+//   The SUPER_POPS set in InteractiveSearch.tsx gives them a distinct
+//   background to visually separate them from All/Non_African within the group.
 
 export const POP_GROUPS: { label: string; pops: string[] }[] = [
-  { label: "Aggregates", pops: ["All", "Non_African"] },
-  { label: "AFR",        pops: ["AFR", "ACB", "ASW", "ESN", "GWD", "LWK", "MSL", "YRI"] },
-  { label: "AMR",        pops: ["AMR", "CLM", "MXL", "PEL", "PUR"] },
-  { label: "EAS",        pops: ["EAS", "CDX", "CHB", "CHS", "JPT", "KHV"] },
-  { label: "EUR",        pops: ["EUR", "CEU", "FIN", "GBR", "IBS", "TSI"] },
-  { label: "SAS",        pops: ["SAS", "BEB", "GIH", "ITU", "PJL", "STU"] },
+  { label: "Aggregates", pops: ["All", "Non_African", "AFR", "AMR", "EAS", "EUR", "SAS"] },
+  { label: "AFR",        pops: ["ACB", "ASW", "ESN", "GWD", "LWK", "MSL", "YRI"] },
+  { label: "AMR",        pops: ["CLM", "MXL", "PEL", "PUR"] },
+  { label: "EAS",        pops: ["CDX", "CHB", "CHS", "JPT", "KHV"] },
+  { label: "EUR",        pops: ["CEU", "FIN", "GBR", "IBS", "TSI"] },
+  { label: "SAS",        pops: ["BEB", "GIH", "ITU", "PJL", "STU"] },
 ];
+
+// ── Token classification (used by TokenSearchBar) ─────────────────────────
+//
+// WHY SETS HERE (not in TokenSearchBar)?
+//   TokenSearchBar needs to know which words are valid filter tokens. Keeping
+//   these Sets here (next to the dropdown option lists) means there is ONE
+//   place to update when a new ME type or annotation is added to the database.
+//   TokenSearchBar simply imports and calls classifyToken() — it has no
+//   knowledge of the actual values.
+//
+// CASE HANDLING:
+//   All token matching is done on the uppercased input word. The raw word
+//   coming out of classifyToken is returned as-is (original case) so the
+//   chip label matches what the user typed; but for API calls the caller
+//   should use the token value exactly as stored in the DB (which happens
+//   to already be uppercase for ME types and annotations).
+
+/** The four field types a typed word can resolve to. */
+export type TokenType = "meType" | "annotation" | "strand" | "chrom";
+
+// ME_TYPE_TOKENS mirrors ME_TYPE_OPTIONS values (uppercase, exact match).
+export const ME_TYPE_TOKENS = new Set(["ALU", "LINE1", "SVA", "HERVK", "PP"]);
+
+// ANNOTATION_TOKENS mirrors ANNOTATION_OPTIONS values (uppercase, exact match).
+// "null" is excluded — it's only meaningful in the dropdown context.
+export const ANNOTATION_TOKENS = new Set([
+  "PROMOTER", "5_UTR", "EXON", "INTRONIC", "3_UTR", "TERMINATOR", "INTERGENIC",
+]);
+
+// Strand is just two characters. Both are stored exactly as "+" or "-" in the DB.
+export const STRAND_TOKENS = new Set(["+", "-"]);
+
+// All 25 chromosomes the API supports.  chr1–chr22 + X, Y, M.
+export const CHROM_TOKENS = new Set([
+  "chr1",  "chr2",  "chr3",  "chr4",  "chr5",  "chr6",  "chr7",  "chr8",
+  "chr9",  "chr10", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16",
+  "chr17", "chr18", "chr19", "chr20", "chr21", "chr22", "chrX",  "chrY", "chrM",
+]);
+
+/**
+ * classifyToken — maps a raw typed word to the API field it belongs to.
+ *
+ * Returns null if the word is not a recognized token (stays as free text).
+ * Strand tokens are matched as-is; everything else is uppercased first so
+ * users can type "alu", "Alu", or "ALU" interchangeably.
+ *
+ * @example
+ *   classifyToken("ALU")       → "meType"
+ *   classifyToken("alu")       → "meType"
+ *   classifyToken("INTRONIC")  → "annotation"
+ *   classifyToken("+")         → "strand"
+ *   classifyToken("chr1")      → "chrom"
+ *   classifyToken("BRCA2")     → null   (stays as free text)
+ */
+export function classifyToken(word: string): TokenType | null {
+  // Strand: exact match only (+ and - must not be uppercased)
+  if (STRAND_TOKENS.has(word)) return "strand";
+
+  const upper = word.toUpperCase();
+  if (ME_TYPE_TOKENS.has(upper))    return "meType";
+  if (ANNOTATION_TOKENS.has(upper)) return "annotation";
+
+  // Chromosomes: lowercase "chr" + uppercase remainder covers "chr1" and "CHR1"
+  const lowerWord = word.toLowerCase();
+  if (CHROM_TOKENS.has(lowerWord))  return "chrom";
+
+  return null;
+}

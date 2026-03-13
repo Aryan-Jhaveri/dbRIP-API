@@ -52,6 +52,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import DataTable from "../components/DataTable";
+import TokenSearchBar, { type SearchTokens } from "../components/TokenSearchBar";
 import { useInsertions, useInsertion } from "../hooks/useInsertions";
 import { buildExportUrl, getInsertion } from "../api/client";
 import type { InsertionSummary } from "../types/insertion";
@@ -158,7 +159,7 @@ function PopFreqTable({ id, activeGroups }: { id: string; activeGroups: Set<stri
           single thick line rather than two thin lines side-by-side. */}
       {visibleGroups.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="border-collapse text-xs whitespace-nowrap">
+          <table className="border-collapse text-xs whitespace-nowrap border-2 border-black dark:border-gray-300">
             <thead>
               {/* Row 1 — one cell per group, spanning all of that group's columns */}
               <tr>
@@ -184,7 +185,7 @@ function PopFreqTable({ id, activeGroups }: { id: string; activeGroups: Set<stri
                         "px-2 py-0.5 text-center border border-black dark:border-gray-500",
                         i === 0 ? "border-l-2 border-l-black dark:border-l-gray-300" : "",
                         SUPER_POPS.has(pop)
-                          ? "font-semibold bg-gray-50 dark:bg-gray-700"
+                          ? "bg-gray-50 dark:bg-gray-700"
                           : "",
                       ]
                         .filter(Boolean)
@@ -209,7 +210,7 @@ function PopFreqTable({ id, activeGroups }: { id: string; activeGroups: Set<stri
                           "px-2 py-0.5 text-center border border-black dark:border-gray-500",
                           i === 0 ? "border-l-2 border-l-black dark:border-l-gray-300" : "",
                           SUPER_POPS.has(pop)
-                            ? "font-semibold bg-gray-50 dark:bg-gray-700"
+                            ? "bg-gray-50 dark:bg-gray-700"
                             : "",
                         ]
                           .filter(Boolean)
@@ -252,15 +253,18 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
   // ── State ────────────────────────────────────────────────────────────
   // pageIndex: current page (0-based), controls which slice of data the API returns
   // pageSize: rows per page, sent as "limit" to the API
-  // searchInput: what the user is typing (updates on every keystroke)
-  // searchQuery: the debounced value actually sent to the API
-  //   (we debounce so we're not firing a new request on every single keystroke)
+  // tokenState: the full structured output from TokenSearchBar — chip arrays
+  //   (meTypes, annotations, strands, chroms) plus the remaining freeText.
+  // debouncedFreeText: the freeText value after a 300ms delay, so we don't
+  //   fire a new API request on every keystroke in the free-text portion.
   // population: selected 1000 Genomes population code (or "" for no filter)
   // minFreq: selected minimum allele frequency threshold (or "" for no filter)
   const [pageIndex, setPageIndex] = useState(0);
   const [pageSize, setPageSize] = useState(50);
-  const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [tokenState, setTokenState] = useState<SearchTokens>({
+    meTypes: [], annotations: [], strands: [], chroms: [], freeText: "",
+  });
+  const [debouncedFreeText, setDebouncedFreeText] = useState("");
   const [population, setPopulation] = useState("");
   const [minFreq, setMinFreq] = useState("");
 
@@ -294,32 +298,53 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
     });
   }, []);
 
-  // ── Debounce search ──────────────────────────────────────────────────
-  // Wait 300ms after the user stops typing before sending the request.
-  // This prevents hammering the API on every keystroke.
-  // We also reset to page 0 so we don't land on a page that no longer exists
-  // (e.g. if search narrows 900 rows to 12, page 5 would be empty).
+  // ── Debounce free-text ────────────────────────────────────────────────
+  // Wait 300ms after the user stops typing the free-text portion before
+  // sending the request. Chip changes (which are instant) reset the page
+  // immediately in the effect below.
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearchQuery(searchInput);
+      setDebouncedFreeText(tokenState.freeText);
       setPageIndex(0);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [tokenState.freeText]);
+
+  // ── Reset page when chip arrays change ───────────────────────────────
+  // Chip promotions are instant (no debounce needed) so we reset the page
+  // immediately. We serialize to joined strings for the dependency array
+  // because React compares arrays by reference, not by value.
+  useEffect(() => {
+    setPageIndex(0);
+  }, [
+    tokenState.meTypes.join(","),
+    tokenState.annotations.join(","),
+    tokenState.strands.join(","),
+    tokenState.chroms.join(","),
+  ]);
+
+  // ── Effective filter values ───────────────────────────────────────────
+  // Merge dropdown selections with token chips using Set to deduplicate.
+  // Example: if the user picks ALU in the dropdown AND types "LINE1 " as a
+  // chip, effectiveMeTypes = ["ALU", "LINE1"] → API receives me_type=ALU,LINE1.
+  const effectiveMeTypes = [...new Set([...meTypes, ...tokenState.meTypes])];
+  const effectiveAnnotations = [...new Set([...annotations, ...tokenState.annotations])];
 
   // ── Fetch data ───────────────────────────────────────────────────────
   // All filtering is server-side. The API accepts comma-separated values for
   // me_type, me_category, and annotation (IN clause) as well as free-text
-  // search and population-frequency filters.
+  // search, strand, chrom, and population-frequency filters.
   const { data, isLoading } = useInsertions({
     limit: pageSize,
     offset: pageIndex * pageSize,
-    search: searchQuery || null,
+    search: debouncedFreeText || null,
     population: population || null,
     min_freq: minFreq ? parseFloat(minFreq) : null,
-    me_type: meTypes.length > 0 ? meTypes.join(",") : null,
+    me_type: effectiveMeTypes.length > 0 ? effectiveMeTypes.join(",") : null,
     me_category: meCategories.length > 0 ? meCategories.join(",") : null,
-    annotation: annotations.length > 0 ? annotations.join(",") : null,
+    annotation: effectiveAnnotations.length > 0 ? effectiveAnnotations.join(",") : null,
+    strand: tokenState.strands.length > 0 ? tokenState.strands.join(",") : null,
+    chrom: tokenState.chroms.length > 0 ? tokenState.chroms.join(",") : null,
   });
 
   // ── Pagination handler ───────────────────────────────────────────────
@@ -333,13 +358,17 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
   );
 
   // ── Export URL ───────────────────────────────────────────────────────
+  // Mirrors the useInsertions call exactly so the downloaded CSV reflects
+  // the same filters the user sees in the table.
   const exportUrl = buildExportUrl("csv", {
-    search: searchQuery || null,
+    search: debouncedFreeText || null,
     population: population || null,
     min_freq: minFreq ? parseFloat(minFreq) : null,
-    me_type: meTypes.length > 0 ? meTypes.join(",") : null,
+    me_type: effectiveMeTypes.length > 0 ? effectiveMeTypes.join(",") : null,
     me_category: meCategories.length > 0 ? meCategories.join(",") : null,
-    annotation: annotations.length > 0 ? annotations.join(",") : null,
+    annotation: effectiveAnnotations.length > 0 ? effectiveAnnotations.join(",") : null,
+    strand: tokenState.strands.length > 0 ? tokenState.strands.join(",") : null,
+    chrom: tokenState.chroms.length > 0 ? tokenState.chroms.join(",") : null,
   });
 
   // ── Copy selected rows as TSV (with population frequencies) ──────────
@@ -388,27 +417,18 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
 
   return (
     <div>
-      {/* ── Search bar ─────────────────────────────────────────────────── */}
+      {/* ── Token search bar ──────────────────────────────────────────── */}
+      {/* Recognized words (ALU, INTRONIC, +, chr1 …) become colored chips that
+          map to specific API filter fields. Remaining text is a free-text LIKE
+          search. See components/TokenSearchBar.tsx for full interaction docs. */}
       <div className="mb-4 flex flex-wrap items-center gap-4">
         <label className="text-sm font-semibold">Search:</label>
-        <input
-          type="text"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="e.g. ALU, INTRONIC, chr1 (case-insensitive)"
-          className="border border-black dark:border-gray-500 px-2 py-1 text-sm flex-1 max-w-md"
-        />
-        {searchInput && (
-          <button
-            onClick={() => {
-              setSearchInput("");
-              setSearchQuery("");
-            }}
-            className="border border-black dark:border-gray-500 px-2 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            Clear
-          </button>
-        )}
+        <div className="flex-1 max-w-md">
+          <TokenSearchBar
+            onTokensChange={setTokenState}
+            placeholder="e.g. ALU INTRONIC + chr1"
+          />
+        </div>
       </div>
 
       {/* ── Population frequency filters ────────────────────────────────── */}
