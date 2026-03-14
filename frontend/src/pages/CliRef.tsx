@@ -275,7 +275,7 @@ export default function CliRef() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div>
       {/*
        * Copy button on its own right-aligned line so it doesn't squish the
        * intro text into a narrow column beside it.

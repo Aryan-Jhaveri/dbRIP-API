@@ -354,8 +354,26 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
   return (
     <div className="space-y-4">
 
+      {/*
+       * Mobile notice — IGV requires a wide viewport to render meaningfully.
+       * igv.js renders internal elements at fixed pixel widths (track labels,
+       * coordinate ruler, read pileups). On phone-sized screens it either clips
+       * or looks broken regardless of CSS.
+       *
+       * sm:hidden shows this banner only when the viewport is narrower than
+       * Tailwind's sm breakpoint (640px). On wider screens it's invisible.
+       */}
+      <div className="sm:hidden border border-black dark:border-gray-500 px-3 py-2 text-sm">
+        <strong>IGV works best on a wider screen.</strong> Rotate your device to landscape
+        mode, or open this page on a tablet or desktop for the full browser experience.
+      </div>
+
       {/* ── Genome + locus controls ────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-4 items-end">
+      {/*
+       * flex-col on mobile so each control gets full width.
+       * sm:flex-row on wider screens so they sit side-by-side.
+       */}
+      <div className="flex flex-col sm:flex-row gap-4 sm:items-end">
 
         {/* Reference genome selector.
             igv.js fetches the genome sequence and gene annotations from igv.org
@@ -382,10 +400,9 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
             Accepts coordinate format ("chr1:1,000,000-1,001,000") or gene names
             ("BRCA1"). Gene names are resolved via igv.js's built-in NCBI search.
             This field is also updated automatically when the `locus` prop changes
-            (i.e. when the user clicks "View in IGV" in InteractiveSearch). */}
-        {/* min-w-0 instead of min-w-[280px] prevents overflow on narrow screens;
-            flex-1 still lets it expand to fill available space on desktop. */}
-        <div className="flex-1 min-w-0 w-full sm:w-auto">
+            (i.e. when the user clicks "View in IGV" in InteractiveSearch).
+            flex-1 expands it to fill remaining width on desktop. */}
+        <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold mb-1">Go to locus</p>
           <div className="flex gap-2">
             <input
@@ -554,25 +571,36 @@ export default function IgvViewer({ locus }: IgvViewerProps) {
           igv.createBrowser() injects a <style> tag into <head> when it first runs.
           This is expected behavior — igv's styles are scoped to its own elements
           and should not affect the rest of the page.
+
+        overflow-x-auto:
+          igv.js renders internal elements (track labels, coordinate ruler, read
+          pileups) at fixed pixel widths. On screens narrower than ~600px these
+          can overflow. The outer overflow-x-auto div allows horizontal scrolling
+          as a fallback instead of clipping the content.
       */}
-      {/*
-        * colorScheme: "light" overrides the inherited "dark" color-scheme that
-        * html.dark sets globally. Without this, the browser fills igv's elements
-        * that don't set their own background-color with the dark system color,
-        * producing the dark-navy void visible in dark mode. igv.js's own CSS
-        * is already light (navbar #f3f3f3, tracks white) — we just need the
-        * system default background to also be white inside this container.
-        * background: "white" ensures the container itself is always white.
-        */}
-      <div
-        ref={containerRef}
-        style={{
-          width: "100%",
-          height: "clamp(350px, 60vh, 600px)",
-          colorScheme: "light",
-          background: "white",
-        }}
-      />
+      <div className="overflow-x-auto" style={{ background: "white" }}>
+        {/*
+          * colorScheme: "light" overrides the inherited "dark" color-scheme that
+          * html.dark sets globally. Without this, the browser fills igv's elements
+          * that don't set their own background-color with the dark system color,
+          * producing the dark-navy void visible in dark mode. igv.js's own CSS
+          * is already light (navbar #f3f3f3, tracks white) — we just need the
+          * system default background to also be white inside this container.
+          * background: "white" ensures the container itself is always white.
+          * minWidth: "600px" gives igv at least 600px to work with on mobile —
+          * narrower than this and the internal track layout breaks.
+          */}
+        <div
+          ref={containerRef}
+          style={{
+            width: "100%",
+            minWidth: "600px",
+            height: "clamp(350px, 60vh, 600px)",
+            colorScheme: "light",
+            background: "white",
+          }}
+        />
+      </div>
     </div>
   );
 }
