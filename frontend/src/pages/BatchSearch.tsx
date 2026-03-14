@@ -199,12 +199,19 @@ export default function BatchSearch() {
         <fieldset className="mb-4">
           <legend className="text-sm font-semibold mb-1">By Population Frequency:</legend>
           <div className="flex flex-wrap items-center gap-4">
-            <label className="text-sm">
+            {/*
+             * max-w-full on the label (the flex item) limits the label to the
+             * container width. max-w-full on the select then limits it to the
+             * label's width. Without both, the select can exceed the viewport on
+             * mobile because the label itself wasn't constrained.
+             * min-w-0 allows the label to shrink below its natural content width.
+             */}
+            <label className="text-sm max-w-full min-w-0">
               Population:{" "}
               <select
                 value={population}
                 onChange={(e) => setPopulation(e.target.value)}
-                className="border border-black dark:border-gray-500 px-2 py-1 text-sm"
+                className="border border-black dark:border-gray-500 px-2 py-1 text-sm max-w-full"
               >
                 <option value="">Any population</option>
                 {POPULATIONS.map((p) => (

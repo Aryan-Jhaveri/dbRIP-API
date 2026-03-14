@@ -135,10 +135,194 @@ function Example({ code }: { code: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────
 
+/**
+ * API_REF_TEXT — plain-text version of the full API reference.
+ *
+ * Used by the "Copy full reference" button so users can paste the whole
+ * reference into an LLM context or a README. Kept as a module-level
+ * constant (not computed at render time) because it never changes.
+ */
+const API_REF_TEXT = `dbRIP REST API Reference
+========================
+
+Base URL: http://localhost:8000  (replace with your server's address when deployed)
+All endpoints are read-only — no writes to the database.
+The frontend sends relative /v1/* paths; the Vite dev proxy forwards to port 8000.
+
+
+GET /v1/insertions
+------------------
+List insertions with optional filters and pagination. All filter params use AND
+logic. Several params accept comma-separated values for OR logic within a field.
+
+Parameters:
+  me_type        TE family: ALU, LINE1, SVA, HERVK. Comma-separate for OR: ALU,SVA
+  me_subtype     TE subfamily, e.g. AluYa5 (exact match)
+  me_category    Non-reference or Reference. Comma-separate for multiple.
+  variant_class  Common, Intermediate, Rare, or Very Rare. Comma-separate for multiple.
+  annotation     INTRONIC, INTERGENIC, EXON, PROMOTER, 5_UTR, 3_UTR, TERMINATOR
+  dataset_id     Filter by dataset source, e.g. dbrip_v1
+  population     1000 Genomes pop code: EUR, AFR, EAS, SAS, AMR, ACB, ASW, BEB,
+                 CDX, CEU, CHB, CHS, CLM, ESN, FIN, GBR, GIH, GWD, IBS, ITU,
+                 JPT, KHV, LWK, MSL, MXL, PEL, PJL, PUR, STU, TSI, YRI,
+                 Non_African, All
+  min_freq       Minimum allele frequency (0.0–1.0). Requires population.
+  max_freq       Maximum allele frequency (0.0–1.0). Requires population.
+  strand         Strand: + or - (URL-encode + as %2B). Comma-separate: strand=%2B,-
+  chrom          Chromosome, e.g. chr1. Comma-separate: chrom=chr1,chrX,chrY
+  search         Free-text search across id, chrom, me_type, me_category, rip_type,
+                 me_subtype, annotation, variant_class (LIKE, case-insensitive)
+  limit          Page size (default 50, max 1000)
+  offset         Pagination offset (default 0)
+
+Example:
+  curl "http://localhost:8000/v1/insertions?me_type=ALU&variant_class=Common&chrom=chr1&limit=3"
+  curl "http://localhost:8000/v1/insertions?me_type=ALU,SVA&population=EUR&min_freq=0.05"
+
+
+POST /v1/insertions/file-search
+--------------------------------
+Upload a BED, CSV, or TSV file and find all insertions overlapping those regions.
+Returns the same paginated response as GET /v1/insertions.
+
+Parameters:
+  file     BED file (tab-separated, no header, columns: chrom start end) or
+           CSV/TSV with chrom/start/end header columns. BED coordinates are 0-based.
+  window   Extend each region by ±N bp before matching (default 0)
+  limit    Page size (default 50, max 1000)
+  offset   Pagination offset (default 0)
+
+Example:
+  curl -X POST "http://localhost:8000/v1/insertions/file-search?window=500" -F "file=@regions.bed"
+
+
+GET /v1/insertions/{id}
+-----------------------
+Get full details for a single insertion by ID, including all 33 population
+frequencies. Returns 404 if the ID does not exist.
+
+Parameters:
+  id   path param — Insertion ID, e.g. A0000001
+
+Example:
+  curl http://localhost:8000/v1/insertions/A0000001
+
+
+GET /v1/insertions/region/{assembly}/{chrom}:{start}-{end}
+----------------------------------------------------------
+List insertions within a genomic region. Accepts all the same filter params as
+GET /v1/insertions (except chrom, which is in the path). Returns 400 if the
+region format is invalid.
+
+Parameters:
+  assembly  path param — Genome assembly, e.g. hg38
+  chrom     path param — Chromosome, e.g. chr1, chrX
+  start     path param — Region start position (1-based)
+  end       path param — Region end position (1-based)
+  …filters  Same filter params as GET /v1/insertions
+
+Example:
+  curl "http://localhost:8000/v1/insertions/region/hg38/chr1:1000000-5000000"
+  curl "http://localhost:8000/v1/insertions/region/hg38/chr1:1000000-5000000?me_type=ALU&population=EUR&min_freq=0.05"
+
+
+GET /v1/export
+--------------
+Download insertions as BED6, VCF 4.2, or CSV. Accepts all the same filter params
+as GET /v1/insertions. Returns a streaming download (Content-Disposition: attachment).
+BED start = DB start − 1 (0-based). VCF and CSV use 1-based coordinates.
+
+Parameters:
+  format    Export format: bed (default), vcf, or csv
+  …filters  Same filter params as GET /v1/insertions
+
+Example:
+  curl "http://localhost:8000/v1/export?format=bed&me_type=ALU" -o alu.bed
+  curl "http://localhost:8000/v1/export?format=vcf&me_type=LINE1&variant_class=Common" -o l1.vcf
+  curl "http://localhost:8000/v1/export?format=csv" -o all.csv
+
+
+GET /v1/stats
+-------------
+Return summary counts grouped by a field (SQL GROUP BY). Returns 400 if the
+by field is not in the allowed list.
+
+Parameters:
+  by   Field to group by (default: me_type).
+       Allowed: me_type, me_subtype, me_category, chrom, variant_class,
+                annotation, dataset_id
+
+Example:
+  curl "http://localhost:8000/v1/stats?by=me_type"
+  curl "http://localhost:8000/v1/stats?by=variant_class"
+  curl "http://localhost:8000/v1/stats?by=chrom"
+
+
+GET /v1/datasets
+----------------
+List all loaded datasets with metadata: version, assembly, row count, load date.
+
+Example:
+  curl http://localhost:8000/v1/datasets
+
+
+GET /v1/datasets/{id}
+---------------------
+Get metadata for a single dataset. Returns 404 if the dataset ID does not exist.
+
+Parameters:
+  id   path param — Dataset ID, e.g. dbrip_v1
+
+Example:
+  curl http://localhost:8000/v1/datasets/dbrip_v1
+
+
+GET /v1/health
+--------------
+Health check. Returns {"status": "ok"} when the API is running.
+
+Example:
+  curl http://localhost:8000/v1/health
+
+
+Error Responses
+---------------
+All errors return JSON with a "detail" field:
+  {"detail": "Insertion FAKE123 not found"}
+
+  400  Bad request — invalid region format, export format, group_by field, or empty file
+  404  Resource not found — insertion ID or dataset ID does not exist
+  500  Server error — check API server logs
+`;
+
 export default function ApiRef() {
+  // "idle" → button shows "Copy full reference"
+  // "done" → button briefly shows "Copied!" for 1.5 s, then reverts
+  const [copy, setCopy] = useState<"idle" | "done">("idle");
+
+  function handleCopy() {
+    navigator.clipboard.writeText(API_REF_TEXT).then(() => {
+      setCopy("done");
+      setTimeout(() => setCopy("idle"), 1500);
+    });
+  }
+
   return (
     <div className="max-w-4xl">
-      {/* Intro / base URL note */}
+      {/*
+       * Copy button on its own right-aligned line so it doesn't squish the
+       * intro text into a narrow column beside it.
+       */}
+      <div className="flex justify-end mb-2">
+        <button
+          onClick={handleCopy}
+          className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+        >
+          {copy === "done" ? "Copied!" : "Copy full reference"}
+        </button>
+      </div>
+
+      {/* Intro / base URL note — full width now that the button is above */}
       <p className="text-sm mb-2">
         All endpoints are read-only — no writes to the database. curl examples
         below use{" "}

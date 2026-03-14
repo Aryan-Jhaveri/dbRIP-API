@@ -70,24 +70,28 @@ function CliCommand({
       {open && hasDetails && (
         <div className="px-3 pt-2 pb-3 border-t border-black dark:border-gray-500">
           {flags.length > 0 && (
-            <table className="text-sm border border-black dark:border-gray-500 w-full mt-2">
-              <thead>
-                <tr className="bg-gray-100 dark:bg-gray-800">
-                  <th className="border border-black dark:border-gray-500 px-2 py-1 text-left font-semibold">Flag</th>
-                  <th className="border border-black dark:border-gray-500 px-2 py-1 text-left font-semibold">Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                {flags.map(([flag, description]) => (
-                  <tr key={flag}>
-                    <td className="border border-black dark:border-gray-500 px-2 py-1 font-mono bg-gray-100 dark:bg-gray-800 whitespace-nowrap">
-                      {flag}
-                    </td>
-                    <td className="border border-black dark:border-gray-500 px-2 py-1">{description}</td>
+            // overflow-x-auto lets long flag strings (e.g. --region, -r <chrom:start-end>)
+            // scroll horizontally on narrow screens instead of breaking out of their container.
+            <div className="overflow-x-auto mt-2">
+              <table className="text-sm border border-black dark:border-gray-500 w-full">
+                <thead>
+                  <tr className="bg-gray-100 dark:bg-gray-800">
+                    <th className="border border-black dark:border-gray-500 px-2 py-1 text-left font-semibold">Flag</th>
+                    <th className="border border-black dark:border-gray-500 px-2 py-1 text-left font-semibold">Description</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {flags.map(([flag, description]) => (
+                    <tr key={flag}>
+                      <td className="border border-black dark:border-gray-500 px-2 py-1 font-mono bg-gray-100 dark:bg-gray-800 whitespace-nowrap">
+                        {flag}
+                      </td>
+                      <td className="border border-black dark:border-gray-500 px-2 py-1">{description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           {example && (
             <pre className="text-sm bg-gray-100 dark:bg-gray-800 font-mono px-2 py-1 mt-2 overflow-x-auto">
@@ -102,10 +106,190 @@ function CliCommand({
 
 // ── Main component ────────────────────────────────────────────────────────
 
+/**
+ * CLI_REF_TEXT — plain-text version of the full CLI reference.
+ *
+ * Used by the "Copy full reference" button so users can paste the whole
+ * reference into an LLM context, a README, or a terminal cheat-sheet.
+ * Kept as a module-level constant (not computed at render time) because
+ * it never changes.
+ */
+const CLI_REF_TEXT = `dbrip CLI Reference
+===================
+
+The dbrip CLI is a thin wrapper around the REST API. Every command sends
+an HTTP request to the running API server — it never accesses the DB directly.
+
+Installation
+------------
+pip install "dbrip-api[cli] @ git+https://github.com/Aryan-Jhaveri/dbRIP.git"
+
+# Point the CLI at the hosted server (add to ~/.bashrc or ~/.zshrc):
+export DBRIP_API_URL=https://<your-deploy-url>
+
+
+dbrip search
+------------
+Search insertions with optional filters. Without --region, queries the entire
+database. With --region, restricts to a genomic window.
+
+Flags:
+  --region, -r <chrom:start-end>   Genomic region, e.g. chr1:1M-5M (K/M suffix supported)
+  --assembly, -a <assembly>        Genome assembly used with --region (default: hg38)
+  --me-type <type>                 TE family: ALU, LINE1, SVA, HERVK (comma-separate for multiple)
+  --me-subtype <subtype>           TE subfamily, e.g. AluYa5
+  --me-category <cat>              Reference or Non-reference
+  --variant-class <class>          Common, Intermediate, Rare, or Very Rare
+  --annotation <ann>               INTRONIC, EXON, PROMOTER, 5_UTR, 3_UTR, INTERGENIC, TERMINATOR
+  --dataset-id <id>                Filter by dataset source, e.g. dbrip_v1
+  --population, -p <pop>           Population code, e.g. EUR, AFR, EAS, SAS, AMR
+  --min-freq <float>               Minimum allele frequency (requires --population)
+  --max-freq <float>               Maximum allele frequency (requires --population)
+  --limit, -l <int>                Number of results (default 50, max 1000)
+  --offset <int>                   Pagination offset
+  --output, -o <fmt>               Output format: table (default) or json
+
+Examples:
+  dbrip search --me-type ALU --limit 10
+  dbrip search --region chr1:1M-5M --me-type ALU
+  dbrip search --population EUR --min-freq 0.1 --variant-class Common
+  dbrip search --me-type ALU --output json
+  dbrip search --me-type ALU,SVA --limit 20
+
+
+Region Shorthand
+----------------
+Use K (thousands) and M (millions) as suffixes in region coordinates.
+The CLI expands them to plain integers before sending the request.
+
+  chr1:1M-5M    → chr1:1000000-5000000
+  chr7:500K-1M  → chr7:500000-1000000
+  chr1:1.5M-2M  → chr1:1500000-2000000
+  chr1:100-200  → chr1:100-200 (no change — plain integers pass through)
+
+
+dbrip get <ID>
+--------------
+Get full details for a single insertion by ID, including all 33 population
+frequencies displayed as a table.
+
+Flags:
+  --output, -o <fmt>   Output format: table (default) or json
+
+Examples:
+  dbrip get A0000001
+  dbrip get A0000001 --output json
+
+
+dbrip export
+------------
+Download insertions as BED6, VCF 4.2, or CSV. Writes to stdout by default
+(pipe-friendly) or to a file with --out. BED coordinates are 0-based; VCF
+and CSV are 1-based.
+
+Flags:
+  --format, -f <fmt>     Export format: bed (default), vcf, or csv
+  --out, -o <path>       Output file path. Omit to write to stdout.
+  --me-type <type>       TE family filter (comma-separate for multiple)
+  --me-subtype <subtype> TE subfamily filter
+  --me-category <cat>    Reference or Non-reference
+  --variant-class <class> Frequency class filter
+  --annotation <ann>     Genomic context filter
+  --dataset-id <id>      Filter by dataset source, e.g. dbrip_v1
+  --population, -p <pop> Population code filter
+  --min-freq <float>     Minimum allele frequency filter
+  --max-freq <float>     Maximum allele frequency filter
+
+Examples:
+  dbrip export --format bed --me-type ALU -o alu.bed
+  dbrip export --format vcf --me-type LINE1 --variant-class Common
+  dbrip export --format vcf --population EUR --min-freq 0.1
+  dbrip export --format bed --me-type ALU | bedtools intersect -a - -b peaks.bed
+  dbrip export --format csv -o all_insertions.csv
+
+
+dbrip stats
+-----------
+Show summary counts grouped by a field. The database does the counting
+(SQL GROUP BY), so this is fast even on the full dataset.
+
+Flags:
+  --by, -b <field>   Field to group by (default: me_type).
+                     Allowed: me_type, me_subtype, me_category, chrom,
+                              variant_class, annotation, dataset_id
+  --output, -o <fmt> Output format: table (default) or json
+
+Examples:
+  dbrip stats
+  dbrip stats --by chrom
+  dbrip stats --by variant_class --output json
+
+
+dbrip datasets
+--------------
+List all loaded datasets with version, assembly, row count, and load date.
+
+Flags:
+  --output, -o <fmt>   Output format: table (default) or json
+
+Examples:
+  dbrip datasets
+  dbrip datasets --output json
+
+
+Piping & Scripting
+------------------
+When stdout is piped (not a terminal), rich table formatting is automatically
+disabled so output stays clean for downstream tools.
+
+  # Count ALU insertions per chromosome
+  dbrip export --format bed --me-type ALU | cut -f1 | sort | uniq -c | sort -rn
+
+  # Intersect with a BED file of ChIP-seq peaks
+  dbrip export --format bed | bedtools intersect -a - -b peaks.bed
+
+  # Extract all insertion IDs matching a filter
+  dbrip search --me-type SVA --output json | jq -r '.results[].id'
+
+  # Batch lookup of specific IDs
+  for id in A0000001 A0000002 A0000003; do
+      dbrip get "$id" --output json >> results.jsonl
+  done
+
+  # Find LINE1 insertions near genes, then annotate
+  dbrip export --format bed --me-type LINE1 | \\
+      bedtools closest -a - -b genes.bed -d | \\
+      awk '$NF < 1000'   # insertions within 1 kb of a gene
+`;
+
 export default function CliRef() {
+  // "idle" → button shows "Copy full reference"
+  // "done" → button briefly shows "Copied!" for 1.5 s, then reverts
+  const [copy, setCopy] = useState<"idle" | "done">("idle");
+
+  function handleCopy() {
+    navigator.clipboard.writeText(CLI_REF_TEXT).then(() => {
+      setCopy("done");
+      setTimeout(() => setCopy("idle"), 1500);
+    });
+  }
+
   return (
     <div className="max-w-4xl">
-      {/* Intro paragraph */}
+      {/*
+       * Copy button on its own right-aligned line so it doesn't squish the
+       * intro text into a narrow column beside it.
+       */}
+      <div className="flex justify-end mb-2">
+        <button
+          onClick={handleCopy}
+          className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+        >
+          {copy === "done" ? "Copied!" : "Copy full reference"}
+        </button>
+      </div>
+
+      {/* Intro paragraph — full width now that the button is above */}
       <p className="text-sm mb-4">
         The <code className="bg-gray-100 dark:bg-gray-800 font-mono px-1">dbrip</code> CLI is a
         thin wrapper around the REST API. Every command sends an HTTP request to

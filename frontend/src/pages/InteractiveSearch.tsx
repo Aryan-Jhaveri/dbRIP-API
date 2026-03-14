@@ -444,7 +444,7 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
             setPopulation(e.target.value);
             setPageIndex(0);
           }}
-          className="border border-black dark:border-gray-500 px-2 py-1 text-sm"
+          className="border border-black dark:border-gray-500 px-2 py-1 text-sm max-w-full"
         >
           <option value="">Any population</option>
           {POPULATIONS.map((p) => (
