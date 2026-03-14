@@ -25,13 +25,14 @@ import BatchSearch from "./pages/BatchSearch";
 import IgvViewer from "./pages/IgvViewer";
 import ApiRef from "./pages/ApiRef";
 import CliRef from "./pages/CliRef";
+import McpRef from "./pages/McpRef";
 
 /**
  * Tab identifiers — used to track which tab is currently active.
  * Using a union type instead of an enum because it's simpler and
  * TypeScript can still enforce that only valid values are used.
  */
-type Tab = "interactive" | "file" | "batch" | "igv" | "api-ref" | "cli-ref";
+type Tab = "interactive" | "file" | "batch" | "igv" | "api-ref" | "cli-ref" | "mcp-ref";
 
 /**
  * Tab metadata — label shown in the tab bar, and which tab it corresponds to.
@@ -43,6 +44,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "igv", label: "IGV Viewer" },
   { id: "api-ref", label: "API Reference" },
   { id: "cli-ref", label: "CLI Reference" },
+  { id: "mcp-ref", label: "MCP Reference" },
 ];
 
 export default function App() {
@@ -168,6 +170,7 @@ export default function App() {
 
         {activeTab === "api-ref" && <ApiRef />}
         {activeTab === "cli-ref" && <CliRef />}
+        {activeTab === "mcp-ref" && <McpRef />}
       </div>
     </div>
   );
