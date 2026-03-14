@@ -198,44 +198,44 @@ export default function BatchSearch() {
             API only applies the freq filter when population is provided. */}
         <fieldset className="mb-4">
           <legend className="text-sm font-semibold mb-1">By Population Frequency:</legend>
-          <div className="flex flex-wrap items-center gap-4">
-            {/*
-             * max-w-full on the label (the flex item) limits the label to the
-             * container width. max-w-full on the select then limits it to the
-             * label's width. Without both, the select can exceed the viewport on
-             * mobile because the label itself wasn't constrained.
-             * min-w-0 allows the label to shrink below its natural content width.
-             */}
-            <label className="text-sm max-w-full min-w-0">
-              Population:{" "}
-              <select
-                value={population}
-                onChange={(e) => setPopulation(e.target.value)}
-                className="border border-black dark:border-gray-500 px-2 py-1 text-sm max-w-full"
-              >
-                <option value="">Any population</option>
-                {POPULATIONS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              Min frequency:{" "}
-              <select
-                value={minFreq}
-                onChange={(e) => setMinFreq(e.target.value)}
-                disabled={!population}
-                className="border border-black dark:border-gray-500 px-2 py-1 text-sm disabled:opacity-40"
-              >
-                {MIN_FREQ_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {/*
+           * On mobile (flex-col): each label/select pair stacks vertically.
+           * w-full on the selects fills the column rather than letting the
+           * browser size them to their longest option text (~500 px), which
+           * would overflow the viewport.
+           *
+           * On sm+ (flex-row): items sit inline; w-auto lets selects shrink
+           * back to their natural content size.
+           */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+            <label htmlFor="batch-population" className="text-sm font-semibold">Population:</label>
+            <select
+              id="batch-population"
+              value={population}
+              onChange={(e) => setPopulation(e.target.value)}
+              className="border border-black dark:border-gray-500 px-2 py-1 text-sm w-full sm:w-auto"
+            >
+              <option value="">Any population</option>
+              {POPULATIONS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="batch-min-freq" className="text-sm font-semibold">Min frequency:</label>
+            <select
+              id="batch-min-freq"
+              value={minFreq}
+              onChange={(e) => setMinFreq(e.target.value)}
+              disabled={!population}
+              className="border border-black dark:border-gray-500 px-2 py-1 text-sm w-full sm:w-auto disabled:opacity-40"
+            >
+              {MIN_FREQ_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
         </fieldset>
 
