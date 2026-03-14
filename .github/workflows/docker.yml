@@ -24,8 +24,21 @@ name: CI / Docker Build
 on:
   push:
     branches: [main]
+    # Skip CI entirely when only docs are updated — no code changed, no rebuild needed.
+    paths-ignore:
+      - "README.md"
+      - "IMPLEMENTATIONS.md"
+      - "docs/**"
+      - "NOTEBOOK/**"
+      - "*.md"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "IMPLEMENTATIONS.md"
+      - "docs/**"
+      - "NOTEBOOK/**"
+      - "*.md"
 
 jobs:
   # ── Job 1: Run the test suite ─────────────────────────────────────────────

@@ -40,3 +40,9 @@ services:
     # Build is triggered automatically on every push to the main branch.
     # Change to a specific branch name if you want to deploy from a different branch.
     branch: main
+
+    # NOTE: Render has no native paths-ignore support in render.yaml.
+    # To skip a Render rebuild for a doc-only push, either:
+    #   - Add [skip render] to the commit message, OR
+    #   - Set ignored files in the Render dashboard → service Settings → "Ignored Files"
+    #     (e.g. README.md, IMPLEMENTATIONS.md, docs/**, NOTEBOOK/**).
