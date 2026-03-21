@@ -2,7 +2,6 @@
 
 Documents the UCSC Track Hub integration — what was built, why, and how each piece fits together.
 
-Design spec: `NOTEBOOK/TRACK_HUB.md` (gitignored, local only).
 
 ---
 
@@ -34,7 +33,7 @@ Each step was committed independently (one file per commit).
 
 The hub uses plain BED6 — the 6 standard columns (chrom, start, end, name, score, strand). Clicking an insertion in UCSC shows the dbRIP ID and coordinates.
 
-AutoSQL (BED6+N with extra columns like me_type, annotation, TSD) was deferred. The core visualization — insertion positions, ME-family colors, search by ID — is identical with plain BED6. Adding AutoSQL requires coordinating 5 files (see `NOTEBOOK/TRACK_HUB.md` § Future Enhancements).
+AutoSQL (BED6+N with extra columns like me_type, annotation, TSD) was deferred. The core visualization — insertion positions, ME-family colors, search by ID — is identical with plain BED6. Adding AutoSQL requires coordinating 5 files.
 
 ### ME types auto-detected from API
 
@@ -118,9 +117,31 @@ push to main (data/raw/*.csv or frontend/src/**)
 
 ---
 
-## Future Enhancements
+## Select All + Bulk Genome Browser (Steps 12–14)
 
-See `NOTEBOOK/TRACK_HUB.md` § Future Enhancements for full details:
+Adds a "Select All" button to DataTable, bulk "View in IGV" (merged bounding region),
+and a new "View in UCSC" button that opens the UCSC Genome Browser.
+
+| Step | File | Status | What it does |
+|------|------|--------|-------------|
+| 12 | `frontend/src/utils/genomeBrowserHelpers.ts` | ⬜ Next | Pure functions: group/merge rows by chrom, build UCSC URL, build IGV locus |
+| 12b | `frontend/src/utils/genomeBrowserHelpers.test.ts` | ⬜ Next | ~7 tests for merge logic, URL format, edge cases |
+| 13 | `frontend/src/components/DataTable.tsx` | ⬜ Todo | Select All / Deselect All button in pagination bar |
+| 13b | `frontend/src/components/DataTable.test.tsx` | ⬜ Todo | ~4 tests for Select All rendering and behavior |
+| 14 | `frontend/src/pages/InteractiveSearch.tsx` | ⬜ Todo | Bulk View in IGV (merged region), new View in UCSC button |
+| 14b | `frontend/src/pages/InteractiveSearch.test.tsx` | ⬜ Todo | ~3 tests for button visibility with 0/1/N selected rows |
+
+### Key Design Decisions
+
+- **Select All** lives in DataTable (generic) because it manages `selectedIds` internally — scope is current page only (selections already clear on page change).
+- **Bulk IGV**: merges selected rows into one bounding region per chromosome; navigates to the chromosome with the most selected rows. igv.js `browser.search()` only accepts a single locus string.
+- **UCSC**: opens one tab per chromosome group (max 5 to avoid popup blockers) with merged regions. URL format: `https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chrX:start-end`
+- **Multi-chromosome selections**: IGV shows the chromosome with the most rows (label indicates which). UCSC opens one tab per chromosome.
+- **Utility functions** in a new `genomeBrowserHelpers.ts` — follows the `filterRowsByRegex.ts` pattern: pure functions, no React, testable in isolation.
+
+---
+
+## Future Enhancements
 
 - **AutoSQL (BED6+N)** — richer UCSC click popups showing me_type, annotation, TSD, variant_class
 - **Population frequency tracks** — per-super-population bigBed tracks colored by allele frequency
