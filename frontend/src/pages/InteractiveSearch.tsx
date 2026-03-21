@@ -56,6 +56,27 @@ import TokenSearchBar, { type SearchTokens } from "../components/TokenSearchBar"
 import { useInsertions, useInsertion } from "../hooks/useInsertions";
 import { buildExportUrl, getInsertion } from "../api/client";
 import type { InsertionSummary } from "../types/insertion";
+import {
+  groupAndMergeByChrom,
+  buildIgvLocus,
+  buildUcscUrl,
+  formatBp,
+} from "../utils/genomeBrowserHelpers";
+
+// ── Genome browser constants ─────────────────────────────────────────────
+// Defined at module level so they're easy to find and change.
+
+/** Max UCSC tabs per click — browsers block window.open beyond ~5 calls. */
+const MAX_UCSC_TABS = 5;
+
+/**
+ * Region span threshold (in bp) for "large region" warnings.
+ * When a merged bounding region is wider than this, the genome browser view
+ * will be zoomed out far enough that individual insertions become invisible.
+ * 1 Mb is roughly the point where individual TE insertions (tens to thousands
+ * of bp) stop being distinguishable in both IGV and UCSC.
+ */
+const LARGE_REGION_BP = 1_000_000;
 
 // Column header labels for the 13 summary fields.
 // Used as the first part of the TSV header when copying selected rows.
@@ -542,8 +563,11 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
         </p>
       )}
 
-      {/* ── Download + copy buttons ─────────────────────────────────────── */}
-      <div className="mt-4 flex items-center gap-3">
+      {/* ── Download + copy + genome browser buttons ─────────────────────
+          flex-wrap ensures the buttons wrap to a second line on narrow screens
+          instead of overflowing off-screen. Each button uses the same border
+          styling so they look like a consistent action bar. */}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         <a
           href={exportUrl}
           download
@@ -566,22 +590,123 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
           </button>
         )}
 
-        {/* View in IGV — shown only when exactly one row is selected AND the
-            parent (App.tsx) has provided the onViewInIgv callback.
-            A single locus string ("chr3:100,234,500-100,235,000") is what
-            igv's browser.search() accepts; multiple rows would be ambiguous. */}
-        {selectedRows.length === 1 && onViewInIgv && (
-          <button
-            onClick={() => {
-              const row = selectedRows[0];
-              onViewInIgv(`${row.chrom}:${row.start}-${row.end}`);
-            }}
-            className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            View in IGV
-          </button>
-        )}
+        {/* ── View in IGV ────────────────────────────────────────────────
+            Shown when ≥1 row is selected AND the parent provides onViewInIgv.
+            For multiple rows: merges selected rows into a bounding region per
+            chromosome, then navigates IGV to the chromosome with the most rows.
+            igv.js browser.search() accepts only one locus string, so we can't
+            show multiple chromosomes simultaneously — the button label indicates
+            which chromosome will be shown when rows span multiple chroms.
+            For a single row: behaves identically to the original (navigate to
+            that exact locus). */}
+        {selectedRows.length > 0 && onViewInIgv && (() => {
+          const merged = groupAndMergeByChrom(selectedRows);
+          const primary = merged[0]; // chromosome with the most selected rows
+          const locus = buildIgvLocus(primary.chrom, primary.start, primary.end);
+          // Show which chromosome when rows span multiple chroms
+          const label = merged.length > 1
+            ? `View in IGV (${primary.chrom})`
+            : "View in IGV";
+          return (
+            <button
+              onClick={() => onViewInIgv(locus)}
+              className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              {label}
+            </button>
+          );
+        })()}
+
+        {/* ── View in UCSC ───────────────────────────────────────────────
+            Opens the UCSC Genome Browser in new tab(s) with the selected region.
+            Single chromosome: one tab with the merged bounding region.
+            Multiple chromosomes: one tab per chromosome (max 5 to avoid popup
+            blockers). Each tab shows that chromosome's merged region so the
+            researcher can see all selected insertions in context.
+            The UCSC URL format is:
+              https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chr1:100-200 */}
+        {selectedRows.length > 0 && (() => {
+          const merged = groupAndMergeByChrom(selectedRows);
+          const label = merged.length > 1
+            ? `View in UCSC (${Math.min(merged.length, MAX_UCSC_TABS)} of ${merged.length} chroms)`
+            : "View in UCSC";
+          return (
+            <button
+              onClick={() => {
+                // Open one tab per chromosome group, capped at MAX_UCSC_TABS.
+                // Browsers may block window.open beyond ~5 calls from a single
+                // click handler (popup blocker).
+                merged.slice(0, MAX_UCSC_TABS).forEach((region) => {
+                  window.open(
+                    buildUcscUrl(region.chrom, region.start, region.end),
+                    "_blank"
+                  );
+                });
+              }}
+              className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              {label}
+            </button>
+          );
+        })()}
       </div>
+
+      {/* ── Selection warnings ─────────────────────────────────────────────
+          Three categories of warning, shown when rows are selected:
+
+          1. Large region span — the merged bounding region is > LARGE_REGION_BP
+             so the genome browser view will be zoomed out too far to see
+             individual insertions. Shown even for single-chromosome selections.
+          2. Multi-chromosome — IGV can only show one chromosome; UCSC opens
+             up to MAX_UCSC_TABS tabs. Chromosomes may be omitted.
+          3. Large copy — fetching population data for many rows means many
+             individual API calls; warn so the user isn't surprised by a wait. */}
+      {selectedRows.length > 0 && (() => {
+        const merged = groupAndMergeByChrom(selectedRows);
+        const primary = merged[0];
+        const primarySpan = primary.end - primary.start;
+        const isLargeRegion = primarySpan >= LARGE_REGION_BP;
+        const isMultiChrom = merged.length > 1;
+
+        // Only render the warning block if there's something to say
+        if (!isLargeRegion && !isMultiChrom) return null;
+
+        return (
+          <div className="mt-2 space-y-1">
+            {/* Large region warning — shown for both single- and multi-chrom */}
+            {isLargeRegion && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Merged region on <strong>{primary.chrom}</strong> spans{" "}
+                <strong>{formatBp(primarySpan)}</strong> ({primary.count} row{primary.count === 1 ? "" : "s"}).
+                The genome browser view will be zoomed out — individual insertions may not be visible.
+              </p>
+            )}
+
+            {/* Multi-chromosome: IGV limitation */}
+            {isMultiChrom && onViewInIgv && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Selected rows span {merged.length} chromosomes.
+                IGV will show only <strong>{primary.chrom}</strong> ({primary.count} row{primary.count === 1 ? "" : "s"}, merged region {primary.start.toLocaleString()}–{primary.end.toLocaleString()}).
+              </p>
+            )}
+
+            {/* Multi-chromosome: UCSC tab cap exceeded */}
+            {isMultiChrom && merged.length > MAX_UCSC_TABS && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                UCSC will open {MAX_UCSC_TABS} of {merged.length} chromosomes (top by row count). {merged.length - MAX_UCSC_TABS} chromosome{merged.length - MAX_UCSC_TABS === 1 ? "" : "s"} omitted:{" "}
+                {merged.slice(MAX_UCSC_TABS).map((r) => r.chrom).join(", ")}.
+              </p>
+            )}
+
+            {/* Multi-chromosome: UCSC within tab limit — informational */}
+            {isMultiChrom && merged.length <= MAX_UCSC_TABS && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                UCSC will open {merged.length} tabs (one per chromosome).
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Population group toggles ────────────────────────────────────── */}
       {/* Global controls: one set of buttons that applies to EVERY expanded row.

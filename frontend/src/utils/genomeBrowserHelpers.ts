@@ -158,3 +158,27 @@ export function buildIgvLocus(
 ): string {
   return `${chrom}:${start}-${end}`;
 }
+
+// ---------------------------------------------------------------------------
+// Human-readable base-pair formatting
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a base-pair count as a human-readable string.
+ *
+ * EXAMPLES:
+ *   formatBp(500)         → "500 bp"
+ *   formatBp(12_345)      → "12.3 kb"
+ *   formatBp(47_300_000)  → "47.3 Mb"
+ *
+ * Used in warning messages so users can understand the merged region span
+ * at a glance ("spans 47.3 Mb") instead of reading raw numbers ("47300000").
+ *
+ * @param bp - Number of base pairs (must be ≥ 0)
+ * @returns  - Formatted string with appropriate unit
+ */
+export function formatBp(bp: number): string {
+  if (bp >= 1_000_000) return `${(bp / 1_000_000).toFixed(1)} Mb`;
+  if (bp >= 1_000) return `${(bp / 1_000).toFixed(1)} kb`;
+  return `${bp} bp`;
+}

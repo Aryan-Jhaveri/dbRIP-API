@@ -518,6 +518,34 @@ The main search tab. Contains:
 - `activeGroups` / `toggleGroup` — global state in `InteractiveSearch` so that all
   expanded rows follow the same group visibility at once
 
+#### Action bar buttons (shown when rows are selected)
+
+| Button | What it does |
+|--------|-------------|
+| **Copy N rows** | Fetches full detail (13 fields + 33 pop freqs) for each selected row, copies as TSV |
+| **View in IGV** | Merges selected rows into one bounding region per chromosome, navigates IGV to the chromosome with the most rows. IGV can only show one locus at a time. |
+| **View in UCSC** | Opens the UCSC Genome Browser in new tab(s). One tab per chromosome with merged region. Max 5 tabs (popup blocker limit). |
+
+**Multi-chromosome warnings:** When selected rows span multiple chromosomes, amber
+warning text appears below the buttons:
+- IGV: tells you which chromosome will be shown and how many rows are on it
+- UCSC (>5 chroms): lists which chromosomes are omitted
+- UCSC (≤5 chroms): confirms how many tabs will open
+
+**Select All / Deselect All** button in the DataTable pagination bar selects all
+rows on the current page. Selections clear on page change.
+
+---
+
+### `frontend/src/utils/genomeBrowserHelpers.ts`
+
+Pure utility functions (no React) for genome browser integration:
+
+- `groupAndMergeByChrom(rows)` — groups rows by chromosome, computes bounding region
+  (min start → max end) per chromosome, sorts by row count descending
+- `buildUcscUrl(chrom, start, end, db?)` — UCSC Genome Browser URL
+- `buildIgvLocus(chrom, start, end)` — IGV locus string (`chr1:100-200`)
+
 ---
 
 ### `scripts/build_trackhub.py`

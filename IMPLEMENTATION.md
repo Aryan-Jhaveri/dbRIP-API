@@ -124,19 +124,21 @@ and a new "View in UCSC" button that opens the UCSC Genome Browser.
 
 | Step | File | Status | What it does |
 |------|------|--------|-------------|
-| 12 | `frontend/src/utils/genomeBrowserHelpers.ts` | ⬜ Next | Pure functions: group/merge rows by chrom, build UCSC URL, build IGV locus |
-| 12b | `frontend/src/utils/genomeBrowserHelpers.test.ts` | ⬜ Next | ~7 tests for merge logic, URL format, edge cases |
-| 13 | `frontend/src/components/DataTable.tsx` | ⬜ Todo | Select All / Deselect All button in pagination bar |
-| 13b | `frontend/src/components/DataTable.test.tsx` | ⬜ Todo | ~4 tests for Select All rendering and behavior |
-| 14 | `frontend/src/pages/InteractiveSearch.tsx` | ⬜ Todo | Bulk View in IGV (merged region), new View in UCSC button |
-| 14b | `frontend/src/pages/InteractiveSearch.test.tsx` | ⬜ Todo | ~3 tests for button visibility with 0/1/N selected rows |
+| 12 | `frontend/src/utils/genomeBrowserHelpers.ts` | Done | Pure functions: group/merge rows by chrom, build UCSC URL, build IGV locus |
+| 12b | `frontend/src/utils/genomeBrowserHelpers.test.ts` | Done | 9 tests for merge logic, URL format, edge cases |
+| 13 | `frontend/src/components/DataTable.tsx` | Done | Select All / Deselect All button in pagination bar |
+| 13b | `frontend/src/components/DataTable.test.tsx` | Done | 5 tests for Select All rendering and behavior |
+| 14 | `frontend/src/pages/InteractiveSearch.tsx` | Done | Bulk View in IGV, View in UCSC, multi-chrom warnings |
 
 ### Key Design Decisions
 
 - **Select All** lives in DataTable (generic) because it manages `selectedIds` internally — scope is current page only (selections already clear on page change).
 - **Bulk IGV**: merges selected rows into one bounding region per chromosome; navigates to the chromosome with the most selected rows. igv.js `browser.search()` only accepts a single locus string.
 - **UCSC**: opens one tab per chromosome group (max 5 to avoid popup blockers) with merged regions. URL format: `https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=chrX:start-end`
-- **Multi-chromosome selections**: IGV shows the chromosome with the most rows (label indicates which). UCSC opens one tab per chromosome.
+- **Multi-chromosome warnings**: when selected rows span multiple chromosomes, amber warning text appears below the action bar explaining what each button will show and which chromosomes are omitted.
+  - IGV: "Selected rows span N chromosomes. IGV will show only chrX (M rows, merged region start–end)."
+  - UCSC (>5 chroms): "UCSC will open 5 of N chromosomes. K chromosomes omitted: chrA, chrB, ..."
+  - UCSC (≤5 chroms): "UCSC will open N tabs (one per chromosome)."
 - **Utility functions** in a new `genomeBrowserHelpers.ts` — follows the `filterRowsByRegex.ts` pattern: pure functions, no React, testable in isolation.
 
 ---

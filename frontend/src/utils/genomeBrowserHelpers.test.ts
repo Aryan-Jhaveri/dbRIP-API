@@ -21,6 +21,7 @@ import {
   groupAndMergeByChrom,
   buildUcscUrl,
   buildIgvLocus,
+  formatBp,
 } from "./genomeBrowserHelpers";
 import type { GenomicRow } from "./genomeBrowserHelpers";
 
@@ -114,5 +115,27 @@ describe("buildIgvLocus", () => {
 
   it("handles small regions", () => {
     expect(buildIgvLocus("chrX", 1, 2)).toBe("chrX:1-2");
+  });
+});
+
+// ── formatBp ──────────────────────────────────────────────────────────────
+
+describe("formatBp", () => {
+  it("formats values under 1,000 as bp", () => {
+    expect(formatBp(500)).toBe("500 bp");
+    expect(formatBp(0)).toBe("0 bp");
+    expect(formatBp(999)).toBe("999 bp");
+  });
+
+  it("formats values 1,000–999,999 as kb", () => {
+    expect(formatBp(1_000)).toBe("1.0 kb");
+    expect(formatBp(12_345)).toBe("12.3 kb");
+    expect(formatBp(999_999)).toBe("1000.0 kb");
+  });
+
+  it("formats values ≥ 1,000,000 as Mb", () => {
+    expect(formatBp(1_000_000)).toBe("1.0 Mb");
+    expect(formatBp(47_300_000)).toBe("47.3 Mb");
+    expect(formatBp(248_956_422)).toBe("249.0 Mb");
   });
 });
