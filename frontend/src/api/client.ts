@@ -10,8 +10,12 @@
  *
  * HOW IT CONNECTS TO THE BACKEND:
  *   In development, Vite's proxy (configured in vite.config.ts) forwards
- *   requests from /v1/* to http://localhost:8000/v1/*. In production,
- *   both frontend and API are served from the same origin, so no proxy needed.
+ *   requests from /v1/* to http://localhost:8000/v1/*. The VITE_API_URL env
+ *   var is not set locally, so BASE falls back to "/v1" and the proxy handles it.
+ *
+ *   In production (GitHub Pages), the frontend is on a different origin than
+ *   the Render API, so we set VITE_API_URL at build time in CI:
+ *     VITE_API_URL=https://dbrip-api.onrender.com/v1 npm run build
  *
  * HOW COMPONENTS USE THIS:
  *   Components don't call these functions directly. Instead, they use
@@ -22,9 +26,18 @@
 import type { PaginatedResponse, InsertionDetail, StatsResponse, Dataset } from "../types/insertion";
 
 // ── Base URL ────────────────────────────────────────────────────────────
-// Empty string = relative URL, which works with both the Vite proxy (dev)
-// and same-origin serving (production).
-const BASE = "/v1";
+// VITE_API_URL is injected at build time by Vite from the environment variable
+// of the same name. In production CI it is set to the Render API URL:
+//   VITE_API_URL=https://dbrip-api.onrender.com/v1 npm run build
+//
+// In local development VITE_API_URL is not set, so this falls back to "/v1"
+// and Vite's dev proxy (vite.config.ts) forwards those requests to localhost:8000.
+// This means local devs never need to set the env var — it just works.
+//
+// import.meta.env is Vite's way of exposing build-time env vars to the browser.
+// (process.env does not exist in browser bundles; Vite replaces import.meta.env
+// values with string literals at build time so no env vars are shipped at runtime.)
+const BASE = import.meta.env.VITE_API_URL ?? "/v1";
 
 // ── Helper ──────────────────────────────────────────────────────────────
 
