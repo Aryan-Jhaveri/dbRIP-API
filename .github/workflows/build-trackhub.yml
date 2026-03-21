@@ -44,10 +44,13 @@ on:
       - "data/raw/dbRIP_all.csv"
       - "data/hub/templates/**"
       - "scripts/build_trackhub.py"
-      # Frontend rebuild triggers — source or deps changed
+      # Frontend rebuild triggers — source, config, or deps changed
       - "frontend/src/**"
+      - "frontend/vite.config.ts"
       - "frontend/package.json"
       - "frontend/package-lock.json"
+      # Workflow itself — rebuild when the CI pipeline changes
+      - ".github/workflows/build-trackhub.yml"
 
   # Manual trigger from the GitHub Actions UI.
   # Use this to force a rebuild without changing any files —
