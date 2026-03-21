@@ -25,9 +25,15 @@ ingest = [
     "pyyaml>=6.0",
     "sqlalchemy>=2.0",
 ]
+trackhub = [
+    # httpx is used by scripts/build_trackhub.py to stream BED exports from the API.
+    # Install this group when running the track hub build pipeline:
+    #   pip install -e ".[trackhub]"
+    "httpx>=0.27",
+]
 # Convenience group to install all functional components
 all = [
-    "dbrip-api[cli,api,ingest]",
+    "dbrip-api[cli,api,ingest,trackhub]",
 ]
 dev = [
     "pytest>=8.0",
