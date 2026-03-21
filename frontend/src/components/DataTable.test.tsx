@@ -209,7 +209,7 @@ describe("DataTable", () => {
     expect(onChange).toHaveBeenCalledWith(0, 50);
   });
 
-  // ── Select All / Deselect All button ──────────────────────────────────
+  // ── Select All / Deselect All (page-only mode — no onSelectAll prop) ─────
 
   it("shows Select All button when onSelectionChange is provided", () => {
     render(
@@ -218,7 +218,7 @@ describe("DataTable", () => {
         data={sampleData}
         total={3}
         pageIndex={0}
-        pageSize={10}
+        pageSize={25}
         onPaginationChange={noop}
         onSelectionChange={vi.fn()}
       />
@@ -233,7 +233,7 @@ describe("DataTable", () => {
         data={sampleData}
         total={3}
         pageIndex={0}
-        pageSize={10}
+        pageSize={25}
         onPaginationChange={noop}
       />
     );
@@ -247,7 +247,7 @@ describe("DataTable", () => {
         data={[]}
         total={0}
         pageIndex={0}
-        pageSize={10}
+        pageSize={25}
         onPaginationChange={noop}
         onSelectionChange={vi.fn()}
       />
@@ -255,7 +255,7 @@ describe("DataTable", () => {
     expect(screen.queryByText("Select All")).not.toBeInTheDocument();
   });
 
-  it("calls onSelectionChange with all rows when Select All is clicked", () => {
+  it("calls onSelectionChange with all rows when Select All is clicked (page-only mode)", () => {
     const onSelection = vi.fn();
     render(
       <DataTable
@@ -263,7 +263,7 @@ describe("DataTable", () => {
         data={sampleData}
         total={3}
         pageIndex={0}
-        pageSize={10}
+        pageSize={25}
         onPaginationChange={noop}
         onSelectionChange={onSelection}
       />
@@ -273,7 +273,7 @@ describe("DataTable", () => {
     expect(onSelection).toHaveBeenCalledWith(sampleData);
   });
 
-  it("toggles to Deselect All after selecting all, then clears selection", () => {
+  it("toggles to Deselect All after selecting all, then clears selection (page-only mode)", () => {
     const onSelection = vi.fn();
     render(
       <DataTable
@@ -281,7 +281,7 @@ describe("DataTable", () => {
         data={sampleData}
         total={3}
         pageIndex={0}
-        pageSize={10}
+        pageSize={25}
         onPaginationChange={noop}
         onSelectionChange={onSelection}
       />
@@ -295,5 +295,102 @@ describe("DataTable", () => {
     expect(screen.getByText("Select All")).toBeInTheDocument();
     // Last call should be with empty array (deselected)
     expect(onSelection).toHaveBeenLastCalledWith([]);
+  });
+
+  // ── Select All (cross-page mode — onSelectAll prop provided) ─────────────
+
+  it("shows 'Select All (N)' label when onSelectAll is provided", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={sampleData}
+        total={100}
+        pageIndex={0}
+        pageSize={25}
+        onPaginationChange={noop}
+        onSelectionChange={vi.fn()}
+        onSelectAll={vi.fn()}
+        onDeselectAll={vi.fn()}
+      />
+    );
+    // Should show total count in button label
+    expect(screen.getByText("Select All (100)")).toBeInTheDocument();
+  });
+
+  it("calls onSelectAll when Select All button is clicked in cross-page mode", () => {
+    const onSelectAll = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        data={sampleData}
+        total={100}
+        pageIndex={0}
+        pageSize={25}
+        onPaginationChange={noop}
+        onSelectionChange={vi.fn()}
+        onSelectAll={onSelectAll}
+        onDeselectAll={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByText("Select All (100)"));
+    expect(onSelectAll).toHaveBeenCalledOnce();
+  });
+
+  it("shows 'Deselect All' when isAllSelected is true", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={sampleData}
+        total={100}
+        pageIndex={0}
+        pageSize={25}
+        onPaginationChange={noop}
+        onSelectionChange={vi.fn()}
+        onSelectAll={vi.fn()}
+        onDeselectAll={vi.fn()}
+        isAllSelected={true}
+      />
+    );
+    expect(screen.getByText("Deselect All")).toBeInTheDocument();
+  });
+
+  it("calls onDeselectAll when Deselect All is clicked in cross-page mode", () => {
+    const onDeselectAll = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        data={sampleData}
+        total={100}
+        pageIndex={0}
+        pageSize={25}
+        onPaginationChange={noop}
+        onSelectionChange={vi.fn()}
+        onSelectAll={vi.fn()}
+        onDeselectAll={onDeselectAll}
+        isAllSelected={true}
+      />
+    );
+    fireEvent.click(screen.getByText("Deselect All"));
+    expect(onDeselectAll).toHaveBeenCalledOnce();
+  });
+
+  it("shows 'Selecting...' and disables button when isSelectAllLoading is true", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={sampleData}
+        total={100}
+        pageIndex={0}
+        pageSize={25}
+        onPaginationChange={noop}
+        onSelectionChange={vi.fn()}
+        onSelectAll={vi.fn()}
+        onDeselectAll={vi.fn()}
+        isSelectAllLoading={true}
+      />
+    );
+    const btn = screen.getByText("Selecting...");
+    expect(btn).toBeInTheDocument();
+    expect(btn).toBeDisabled();
   });
 });

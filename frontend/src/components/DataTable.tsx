@@ -55,8 +55,12 @@
  *   pageSize           — Number of rows per page
  *   onPaginationChange — Called when user changes page or page size
  *   isLoading          — Whether data is currently being fetched
- *   onSelectionChange  — Called when row-click selection changes (blue highlight)
- *   renderExpandedRow  — If provided, enables checkboxes that expand a nested row
+ *   onSelectionChange    — Called when row-click selection changes (blue highlight)
+ *   renderExpandedRow    — If provided, enables checkboxes that expand a nested row
+ *   onSelectAll          — If provided, "Select All" calls this (parent fetches ALL results)
+ *   onDeselectAll        — If provided, "Deselect All" calls this (parent clears selection)
+ *   isAllSelected        — When true, ALL matching rows are selected (cross-page)
+ *   isSelectAllLoading   — When true, Select All button shows "Selecting..." and is disabled
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -107,6 +111,52 @@ export interface DataTableProps<TData> {
    * to render in a nested <tr> below that row (e.g. a population frequency table).
    */
   renderExpandedRow?: (row: TData) => React.ReactNode;
+
+  /**
+   * If provided, clicking "Select All" calls this instead of selecting the current
+   * page only. The parent is responsible for fetching ALL matching rows from the API
+   * and passing them back via onSelectionChange / managing selectedRows state.
+   *
+   * WHY THIS LIVES IN THE PARENT (InteractiveSearch), NOT IN DATATABLE:
+   *   DataTable only knows about the current page's rows. To select ALL matching
+   *   results (e.g. 44,984 rows), the parent must call the API with limit=total.
+   *   DataTable delegates this by calling onSelectAll and then waiting for the
+   *   parent to set isAllSelected=true.
+   */
+  onSelectAll?: () => void;
+
+  /** Called when the user deselects all (while isAllSelected is true). */
+  onDeselectAll?: () => void;
+
+  /**
+   * When true, ALL matching results are selected (not just the current page).
+   * DataTable renders all visible rows with blue highlight regardless of
+   * internal selectedIds. Managed entirely by the parent component.
+   */
+  isAllSelected?: boolean;
+
+  /**
+   * When true, the Select All button shows "Selecting..." and is disabled.
+   * Use while the parent is fetching all matching rows from the API.
+   */
+  isSelectAllLoading?: boolean;
+
+  /**
+   * A set of stable row keys (e.g. dbRIP insertion IDs like "A0000001") that
+   * should be highlighted blue when they appear in the current page. Used to
+   * show accumulated cross-page selection: rows selected on page 1 stay blue
+   * when the user navigates to page 2 and back.
+   *
+   * Requires rowKey to be provided.
+   */
+  preselectedKeys?: Set<string>;
+
+  /**
+   * Extracts a stable string key from a row object (e.g. (row) => row.id).
+   * Used to match rows against preselectedKeys. Must be provided when
+   * preselectedKeys is used.
+   */
+  rowKey?: (row: TData) => string;
 }
 
 // ── Available page sizes ─────────────────────────────────────────────────
@@ -125,6 +175,12 @@ export default function DataTable<TData>({
   isLoading = false,
   onSelectionChange,
   renderExpandedRow,
+  onSelectAll,
+  onDeselectAll,
+  isAllSelected = false,
+  isSelectAllLoading = false,
+  preselectedKeys,
+  rowKey,
 }: DataTableProps<TData>) {
   // Calculate total number of pages
   const pageCount = Math.ceil(total / pageSize);
@@ -171,16 +227,50 @@ export default function DataTable<TData>({
     return () => document.removeEventListener("mouseup", handleMouseUp);
   }, []);
 
-  // Reset both sets and both anchors whenever the page data changes.
-  // If we didn't do this, row IDs from the previous page would linger in the sets,
-  // and the next page's rows (which reuse the same IDs "0"–"49") would appear
-  // pre-selected or pre-expanded.
+  // Reset on page change.
+  // - expandedIds: always clear (expanded detail rows are page-specific)
+  // - click anchors: always clear (shift-click range is page-local)
+  // - selectedIds: three cases:
+  //     1. isAllSelected=true — parent manages cross-page selection, keep as-is
+  //     2. preselectedKeys + rowKey provided — initialize from the accumulated
+  //        selection: highlight whichever rows on this new page are already in
+  //        the parent's selectedRows set. This is what makes navigating back to
+  //        page 1 re-show the blue highlights for rows selected there earlier.
+  //     3. Neither — clear (original page-only behavior)
+  //
+  // preselectedKeys and rowKey are intentionally omitted from the dep array.
+  // We only want this to re-run when the page DATA changes (navigation), not
+  // on every render. Using the current snapshot of preselectedKeys is correct
+  // because it reflects the accumulated selection at the moment of navigation.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    setSelectedIds(new Set());
+    if (!isAllSelected) {
+      if (preselectedKeys && rowKey) {
+        // Restore blue highlights for rows on this page that were previously selected.
+        const ids = new Set(
+          rows
+            .filter((r) => preselectedKeys.has(rowKey(r.original)))
+            .map((r) => r.id)
+        );
+        setSelectedIds(ids);
+      } else {
+        setSelectedIds(new Set());
+      }
+    }
     setExpandedIds(new Set());
     lastRowClickRef.current = null;
     lastCheckboxClickRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
+
+  // When exiting all-selected mode (parent sets isAllSelected=false), clear internal
+  // selectedIds so previously-selected page rows don't linger as blue highlights
+  // while the user returns to individual row selection.
+  useEffect(() => {
+    if (!isAllSelected) {
+      setSelectedIds((prev) => (prev.size > 0 ? new Set() : prev));
+    }
+  }, [isAllSelected]);
 
   // ── Create TanStack Table instance ────────────────────────────────────
   // manualPagination = true tells TanStack "don't paginate locally,
@@ -203,8 +293,14 @@ export default function DataTable<TData>({
 
   // Notify parent whenever row-click selection changes.
   // We map row IDs back to original TData objects using the current row model.
+  //
+  // Guard: skip when isAllSelected is true. In that mode the parent has already
+  // set selectedRows directly (to all matching rows), and we must not override
+  // it with just the current page's subset. When isAllSelected goes false, the
+  // [isAllSelected] effect above clears selectedIds, which triggers this effect
+  // with an empty set — correctly notifying the parent of the cleared selection.
   useEffect(() => {
-    if (!onSelectionChange) return;
+    if (!onSelectionChange || isAllSelected) return;
     onSelectionChange(
       rows.filter((r) => selectedIds.has(r.id)).map((r) => r.original)
     );
@@ -230,8 +326,16 @@ export default function DataTable<TData>({
   // After either:    update lastRowClickRef so the next shift-press has a valid anchor.
   function handleRowMouseDown(e: React.MouseEvent, rowId: string, rowIndex: number) {
     if (e.button !== 0) return; // ignore right-click / middle-click
-    e.preventDefault(); // prevent browser text-selection drag
 
+    // While in all-selected mode, any row click exits bulk selection entirely.
+    // The user was looking at everything selected; clicking one row means they
+    // want individual control. They can re-select specific rows after this.
+    if (isAllSelected) {
+      onDeselectAll?.();
+      return;
+    }
+
+    e.preventDefault(); // prevent browser text-selection drag
     isDraggingRef.current = true;
 
     if (e.shiftKey && lastRowClickRef.current !== null) {
@@ -279,7 +383,7 @@ export default function DataTable<TData>({
   // We return the previous Set unchanged if it's already in the right state to
   // avoid unnecessary re-renders (React bails out if the reference is the same).
   function handleRowMouseEnter(rowId: string) {
-    if (!isDraggingRef.current) return;
+    if (!isDraggingRef.current || isAllSelected) return;
     setSelectedIds((prev) => {
       if (dragModeRef.current === "select") {
         if (prev.has(rowId)) return prev;
@@ -348,25 +452,51 @@ export default function DataTable<TData>({
             : `Showing ${firstRow} to ${lastRow} of ${total.toLocaleString()} entries`}
         </span>
 
-        {/* Select All / Deselect All — only shown when the parent opts into
-            row-click selection (onSelectionChange provided) AND there are rows.
-            Scope: current page only. Selections already clear on page change,
-            so "Select All" always means "select all rows I can see right now."
-            The button label toggles based on whether all rows are already selected. */}
+        {/* Select All / Deselect All
+            Two modes depending on whether the parent provides onSelectAll:
+
+            CROSS-PAGE mode (onSelectAll provided):
+              "Select All (N)" — calls onSelectAll, parent fetches ALL matching rows
+              "Deselect All"  — calls onDeselectAll when isAllSelected is true
+              N is the total matching result count, shown so users know the scope.
+
+            PAGE-ONLY mode (no onSelectAll — backward compatible):
+              "Select All"   — selects all rows on the current page
+              "Deselect All" — deselects all rows on the current page
+
+            Only shown when the parent opts into row-click selection
+            (onSelectionChange provided) AND there are rows to select. */}
         {onSelectionChange && rows.length > 0 && (
           <button
+            disabled={isSelectAllLoading}
             onClick={() => {
-              if (selectedIds.size === rows.length) {
-                // All rows selected → deselect all
-                setSelectedIds(new Set());
+              if (onSelectAll) {
+                // Cross-page mode: delegate to parent
+                if (isAllSelected) {
+                  onDeselectAll?.();
+                } else {
+                  onSelectAll();
+                }
               } else {
-                // Some or none selected → select all rows on this page
-                setSelectedIds(new Set(rows.map((r) => r.id)));
+                // Page-only mode (backward compatible): toggle current page
+                if (selectedIds.size === rows.length) {
+                  setSelectedIds(new Set());
+                } else {
+                  setSelectedIds(new Set(rows.map((r) => r.id)));
+                }
               }
             }}
-            className="border border-black dark:border-gray-500 px-3 h-8 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="border border-black dark:border-gray-500 px-3 h-8 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {selectedIds.size === rows.length ? "Deselect All" : "Select All"}
+            {isSelectAllLoading
+              ? "Selecting..."
+              : isAllSelected
+                ? "Deselect All"
+                : onSelectAll
+                  ? `Select All (${total.toLocaleString()})`
+                  : selectedIds.size === rows.length
+                    ? "Deselect All"
+                    : "Select All"}
           </button>
         )}
 
@@ -527,7 +657,9 @@ export default function DataTable<TData>({
               // flatMap lets us conditionally insert the expanded detail row
               // immediately after each data row without nesting arrays manually.
               rows.flatMap((row) => {
-                const isSelected = selectedIds.has(row.id);
+                // isAllSelected = parent has selected ALL matching rows across all pages.
+                // In that mode every visible row is blue, regardless of selectedIds.
+                const isSelected = isAllSelected || selectedIds.has(row.id);
                 const isExpanded = expandedIds.has(row.id);
 
                 // The main data row.

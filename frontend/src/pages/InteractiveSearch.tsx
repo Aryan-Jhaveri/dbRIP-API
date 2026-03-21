@@ -49,12 +49,12 @@
  *   population frequency table fetched on demand.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import DataTable from "../components/DataTable";
 import TokenSearchBar, { type SearchTokens } from "../components/TokenSearchBar";
 import { useInsertions, useInsertion } from "../hooks/useInsertions";
-import { buildExportUrl, getInsertion } from "../api/client";
+import { buildExportUrl, getInsertion, listInsertions } from "../api/client";
 import type { InsertionSummary } from "../types/insertion";
 import {
   groupAndMergeByChrom,
@@ -68,6 +68,28 @@ import {
 
 /** Max UCSC tabs per click — browsers block window.open beyond ~5 calls. */
 const MAX_UCSC_TABS = 5;
+
+/**
+ * Maximum rows the Copy button will fetch population data for.
+ * Each row requires one individual API call (GET /v1/insertions/{id}).
+ * Above this threshold the button is disabled; use Download CSV instead,
+ * which returns all rows with population data in a single server-side request.
+ */
+const MAX_COPY_ROWS = 500;
+
+/**
+ * Maximum result count at which "Select All (N)" is offered as a cross-page
+ * operation. When the current filter returns more rows than this, the button
+ * falls back to page-level "Select All" (selects only the visible page).
+ *
+ * WHY A THRESHOLD?
+ *   Cross-page Select All fetches ALL matching rows in one API call
+ *   (limit=total). For large result sets (tens of thousands of rows) this is
+ *   slow and transfers significant data. For small filtered sets it's instant.
+ *   The right workflow for large sets is: apply filters first to narrow down,
+ *   then Select All the filtered subset.
+ */
+const MAX_SELECT_ALL_RESULTS = 5_000;
 
 /**
  * Region span threshold (in bp) for "large region" warnings.
@@ -298,8 +320,18 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
   const [annotations, setAnnotations] = useState<string[]>([]);
 
   // Currently selected rows (row-click blue highlight), feeds the Copy button.
-  // Updated by DataTable's onSelectionChange whenever the user clicks rows.
+  // Updated by DataTable's onSelectionChange (page-level clicks) OR by
+  // handleSelectAll (fetches ALL matching rows from the API).
   const [selectedRows, setSelectedRows] = useState<InsertionSummary[]>([]);
+
+  // isAllSelected: true when the user clicked "Select All (N)" and we've fetched
+  // all matching rows into selectedRows. DataTable highlights every visible row
+  // blue and page navigation no longer clears the selection.
+  const [isAllSelected, setIsAllSelected] = useState(false);
+
+  // selectAllLoading: true while we're fetching all matching rows from the API.
+  // DataTable shows "Selecting..." on the button during this time.
+  const [selectAllLoading, setSelectAllLoading] = useState(false);
 
   // Copy button state machine: idle → loading (fetching pop data) → done (flash "Copied!") → idle
   const [copyState, setCopyState] = useState<"idle" | "loading" | "done">("idle");
@@ -318,6 +350,55 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
       return next;
     });
   }, []);
+
+  // ── Effective filter values ───────────────────────────────────────────
+  // Merge dropdown selections with token chips using Set to deduplicate.
+  // Example: if the user picks ALU in the dropdown AND types "LINE1 " as a
+  // chip, effectiveMeTypes = ["ALU", "LINE1"] → API receives me_type=ALU,LINE1.
+  //
+  // These are computed here (before the useInsertions call) so they can be
+  // referenced in handleSelectAll without repeating the merge logic.
+  const effectiveMeTypes = useMemo(
+    () => [...new Set([...meTypes, ...tokenState.meTypes])],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [meTypes.join(","), tokenState.meTypes.join(",")]
+  );
+  const effectiveAnnotations = useMemo(
+    () => [...new Set([...annotations, ...tokenState.annotations])],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [annotations.join(","), tokenState.annotations.join(",")]
+  );
+
+  // filterParams — the shared set of API filter fields used by:
+  //   1. useInsertions (the paginated table fetch)
+  //   2. buildExportUrl (the Download CSV link)
+  //   3. handleSelectAll (fetches all matching rows for cross-page Select All)
+  //
+  // Using useMemo means all three callers stay in sync automatically. Adding a
+  // new filter field here propagates to the export and Select All without extra
+  // changes.
+  const filterParams = useMemo(() => ({
+    search: debouncedFreeText || null,
+    population: population || null,
+    min_freq: minFreq ? parseFloat(minFreq) : null,
+    me_type: effectiveMeTypes.length > 0 ? effectiveMeTypes.join(",") : null,
+    me_category: meCategories.length > 0 ? meCategories.join(",") : null,
+    annotation: effectiveAnnotations.length > 0 ? effectiveAnnotations.join(",") : null,
+    strand: tokenState.strands.length > 0 ? tokenState.strands.join(",") : null,
+    chrom: tokenState.chroms.length > 0 ? tokenState.chroms.join(",") : null,
+  }), [
+    debouncedFreeText, population, minFreq,
+    effectiveMeTypes, meCategories, effectiveAnnotations,
+    tokenState.strands, tokenState.chroms,
+  ]);
+
+  // Reset all-selected mode when filters change so that stale selected rows
+  // (from a previous filter state) don't persist into the new result set.
+  // DataTable will also clear its internal selectedIds via the isAllSelected effect.
+  useEffect(() => {
+    setIsAllSelected(false);
+    setSelectedRows([]);
+  }, [filterParams]);
 
   // ── Debounce free-text ────────────────────────────────────────────────
   // Wait 300ms after the user stops typing the free-text portion before
@@ -344,28 +425,13 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
     tokenState.chroms.join(","),
   ]);
 
-  // ── Effective filter values ───────────────────────────────────────────
-  // Merge dropdown selections with token chips using Set to deduplicate.
-  // Example: if the user picks ALU in the dropdown AND types "LINE1 " as a
-  // chip, effectiveMeTypes = ["ALU", "LINE1"] → API receives me_type=ALU,LINE1.
-  const effectiveMeTypes = [...new Set([...meTypes, ...tokenState.meTypes])];
-  const effectiveAnnotations = [...new Set([...annotations, ...tokenState.annotations])];
-
   // ── Fetch data ───────────────────────────────────────────────────────
-  // All filtering is server-side. The API accepts comma-separated values for
-  // me_type, me_category, and annotation (IN clause) as well as free-text
-  // search, strand, chrom, and population-frequency filters.
+  // All filtering is server-side. filterParams (above) holds the shared filter
+  // state; we add pagination on top for this specific page load.
   const { data, isLoading } = useInsertions({
+    ...filterParams,
     limit: pageSize,
     offset: pageIndex * pageSize,
-    search: debouncedFreeText || null,
-    population: population || null,
-    min_freq: minFreq ? parseFloat(minFreq) : null,
-    me_type: effectiveMeTypes.length > 0 ? effectiveMeTypes.join(",") : null,
-    me_category: meCategories.length > 0 ? meCategories.join(",") : null,
-    annotation: effectiveAnnotations.length > 0 ? effectiveAnnotations.join(",") : null,
-    strand: tokenState.strands.length > 0 ? tokenState.strands.join(",") : null,
-    chrom: tokenState.chroms.length > 0 ? tokenState.chroms.join(",") : null,
   });
 
   // ── Pagination handler ───────────────────────────────────────────────
@@ -378,19 +444,38 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
     []
   );
 
+  // ── Accumulated cross-page selection handler ─────────────────────────
+  // DataTable fires onSelectionChange with the currently-selected rows on the
+  // VISIBLE PAGE only (its internal selectedIds are page-local). Instead of
+  // replacing selectedRows entirely, we merge: keep rows from other pages and
+  // replace only the current page's contribution.
+  //
+  // HOW IT WORKS:
+  //   selectedRows may contain rows from pages 1, 3, and 5.
+  //   When the user is on page 2 and selects row X, DataTable fires [X].
+  //   We keep all non-page-2 rows and add X → [page1rows, page3rows, page5rows, X].
+  //
+  // WHY THIS ENABLES "SELECT ALL ACROSS PAGES":
+  //   Go to page 1, click Select All → page 1 rows go into selectedRows.
+  //   Navigate to page 2, click Select All → page 2 rows ADDED to selectedRows.
+  //   Navigate back to page 1 → DataTable re-initialises from preselectedKeys
+  //   (passed below) so page 1 rows are still highlighted blue.
+  const handleSelectionChange = useCallback(
+    (pageRows: InsertionSummary[]) => {
+      setSelectedRows((prev) => {
+        // The current page's IDs — rows we're allowed to replace/remove.
+        const currentPageIds = new Set(data?.results?.map((r) => r.id) ?? []);
+        // Keep everything that came from OTHER pages, then add this page's selection.
+        const fromOtherPages = prev.filter((r) => !currentPageIds.has(r.id));
+        return [...fromOtherPages, ...pageRows];
+      });
+    },
+    [data?.results]
+  );
+
   // ── Export URL ───────────────────────────────────────────────────────
-  // Mirrors the useInsertions call exactly so the downloaded CSV reflects
-  // the same filters the user sees in the table.
-  const exportUrl = buildExportUrl("csv", {
-    search: debouncedFreeText || null,
-    population: population || null,
-    min_freq: minFreq ? parseFloat(minFreq) : null,
-    me_type: effectiveMeTypes.length > 0 ? effectiveMeTypes.join(",") : null,
-    me_category: meCategories.length > 0 ? meCategories.join(",") : null,
-    annotation: effectiveAnnotations.length > 0 ? effectiveAnnotations.join(",") : null,
-    strand: tokenState.strands.length > 0 ? tokenState.strands.join(",") : null,
-    chrom: tokenState.chroms.length > 0 ? tokenState.chroms.join(",") : null,
-  });
+  // Uses filterParams so the downloaded CSV always reflects the current filters.
+  const exportUrl = buildExportUrl("csv", filterParams);
 
   // ── Copy selected rows as TSV (with population frequencies) ──────────
   // Fetches full InsertionDetail for each selected row in parallel, then
@@ -435,6 +520,44 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
       setCopyState("idle");
     }
   }, [selectedRows]);
+
+  // ── Select All Results ───────────────────────────────────────────────
+  // Fetches ALL matching rows (not just the current page) from the API using the
+  // same filters currently applied. Called when the user clicks "Select All (N)".
+  //
+  // WHY FETCH ALL ROWS INSTEAD OF JUST TRACKING A FLAG?
+  //   The Copy button, IGV, and UCSC buttons all need actual row objects
+  //   (chrom, start, end, id) to compute bounding regions and TSV content.
+  //   We can't lazily load them — we need the full set up front.
+  //
+  // SCALABILITY NOTE:
+  //   With no filters, this fetches all 44,984 InsertionSummary rows.
+  //   Each row is ~200 bytes → ~9 MB of JSON. This is large but browser-safe.
+  //   For practical use, users will almost always have filters applied first.
+  //   The Copy button is separately capped at MAX_COPY_ROWS (500) to avoid
+  //   making thousands of individual API calls.
+  const handleSelectAll = useCallback(async () => {
+    const total = data?.total ?? 0;
+    if (total === 0) return;
+
+    setSelectAllLoading(true);
+    try {
+      // Fetch all matching rows using the same filters as the current table view.
+      // limit = total fetches everything in one request (no pagination).
+      const allData = await listInsertions({ ...filterParams, limit: total, offset: 0 });
+      setSelectedRows(allData.results);
+      setIsAllSelected(true);
+    } catch {
+      // If the fetch fails, silently abort — don't enter a broken all-selected state.
+    } finally {
+      setSelectAllLoading(false);
+    }
+  }, [data?.total, filterParams]);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedRows([]);
+    setIsAllSelected(false);
+  }, []);
 
   return (
     <div>
@@ -575,18 +698,27 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
         >
           Download CSV
         </a>
-        {/* Copy selected rows as TSV (summary + pop columns) — shown when ≥1 row clicked */}
+        {/* Copy selected rows as TSV (summary + pop columns) — shown when ≥1 row selected.
+            Disabled above MAX_COPY_ROWS because each row requires one individual API call
+            (GET /v1/insertions/{id} for population data). At 500+ rows that's 500+ requests.
+            For large selections, Download CSV is the right tool — it fetches everything
+            server-side in a single request. */}
         {selectedRows.length > 0 && (
           <button
             onClick={handleCopySelected}
-            disabled={copyState === "loading"}
+            disabled={copyState === "loading" || selectedRows.length > MAX_COPY_ROWS}
+            title={selectedRows.length > MAX_COPY_ROWS
+              ? `Copy is limited to ${MAX_COPY_ROWS.toLocaleString()} rows. Use Download CSV for larger selections.`
+              : undefined}
             className="border border-black dark:border-gray-500 px-3 py-1 text-sm cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {copyState === "loading"
               ? "Copying..."
               : copyState === "done"
               ? "Copied!"
-              : `Copy ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"}`}
+              : selectedRows.length > MAX_COPY_ROWS
+              ? `Copy ${selectedRows.length.toLocaleString()} rows (use Download CSV)`
+              : `Copy ${selectedRows.length.toLocaleString()} selected row${selectedRows.length === 1 ? "" : "s"}`}
           </button>
         )}
 
@@ -749,6 +881,13 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
           is always accurate.
           onSelectionChange: driven by row clicks (blue highlight) in DataTable.
           renderExpandedRow: shows an inline PopFreqTable when a checkbox is checked. */}
+      {/* ── Data table ─────────────────────────────────────────────────── */}
+      {/* onSelectAll is only passed when the total result count is small enough
+          to fetch all rows in one API call without noticeable delay.
+          When total > MAX_SELECT_ALL_RESULTS, DataTable falls back to page-level
+          "Select All" (selects only the current page — fast, no extra API call).
+          The right workflow for large result sets: apply filters first to narrow
+          the count, then Select All the filtered subset. */}
       <DataTable
         columns={columns}
         data={data?.results ?? []}
@@ -757,7 +896,13 @@ export default function InteractiveSearch({ onViewInIgv }: InteractiveSearchProp
         pageSize={pageSize}
         onPaginationChange={handlePaginationChange}
         isLoading={isLoading}
-        onSelectionChange={setSelectedRows}
+        onSelectionChange={handleSelectionChange}
+        onSelectAll={(data?.total ?? 0) <= MAX_SELECT_ALL_RESULTS ? handleSelectAll : undefined}
+        onDeselectAll={handleDeselectAll}
+        isAllSelected={isAllSelected}
+        isSelectAllLoading={selectAllLoading}
+        preselectedKeys={selectedRows.length > 0 ? new Set(selectedRows.map((r) => r.id)) : undefined}
+        rowKey={(row) => (row as InsertionSummary).id}
         renderExpandedRow={(row) => (
           <PopFreqTable id={(row as InsertionSummary).id} activeGroups={activeGroups} />
         )}
