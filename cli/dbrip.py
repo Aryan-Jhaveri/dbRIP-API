@@ -46,8 +46,12 @@ from typing import Optional
 
 import httpx
 import typer
+from rich import box
 from rich.console import Console
+from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
+from rich.text import Text
 
 # ── App setup ────────────────────────────────────────────────────────────
 #
@@ -62,10 +66,71 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Rich console for pretty-printing tables.
+# Rich console for pretty-printing tables and panels.
 # When stdout is piped (not a TTY), rich automatically disables colors
 # and decorations, so output stays clean for awk/grep/bedtools.
 console = Console()
+
+# ── Color mappings ────────────────────────────────────────────────────────
+#
+# These map database values to rich style strings.
+# Using the Okabe-Ito colorblind-safe palette (same as the track hub).
+# rich styles: https://rich.readthedocs.io/en/stable/style.html
+
+# ME type → rich style (bold + color)
+ME_TYPE_STYLES: dict[str, str] = {
+    "ALU":   "bold blue",
+    "LINE1": "bold #D55E00",   # vermilion (Okabe-Ito)
+    "SVA":   "bold #009E73",   # bluish green (Okabe-Ito)
+    "HERVK": "bold #CC79A7",   # reddish purple (Okabe-Ito)
+    "PP":    "bold #E69F00",   # orange (Okabe-Ito)
+}
+
+# Variant class → rich style
+VARIANT_CLASS_STYLES: dict[str, str] = {
+    "Common":  "green",
+    "Rare":    "yellow",
+    "Private": "red",
+}
+
+
+def _me_type_text(value: str | None) -> Text:
+    """Wrap an ME type value in its Okabe-Ito color, or return plain text."""
+    if not value:
+        return Text("")
+    style = ME_TYPE_STYLES.get(value, "")
+    return Text(value, style=style)
+
+
+def _variant_class_text(value: str | None) -> Text:
+    """Color-code variant class (Common=green, Rare=yellow, Private=red)."""
+    if not value:
+        return Text("")
+    style = VARIANT_CLASS_STYLES.get(value, "")
+    return Text(value, style=style)
+
+
+def _af_text(af: float | None) -> Text:
+    """Format an allele frequency with a color based on its magnitude.
+
+    Color scale (same thresholds used in population genetics literature):
+        ≥ 0.50 → bold green  (common variant, majority of people carry it)
+        ≥ 0.10 → green       (common variant)
+        ≥ 0.01 → yellow      (rare variant)
+        <  0.01 → dim        (very rare / private)
+        None    → dim dash
+    """
+    if af is None:
+        return Text("—", style="dim")
+    formatted = f"{af:.4f}"
+    if af >= 0.50:
+        return Text(formatted, style="bold green")
+    if af >= 0.10:
+        return Text(formatted, style="green")
+    if af >= 0.01:
+        return Text(formatted, style="yellow")
+    return Text(formatted, style="dim")
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -79,16 +144,18 @@ def _base_url() -> str:
     return os.environ.get("DBRIP_API_URL", "http://localhost:8000").rstrip("/")
 
 
-def _get(path: str, params: dict | None = None) -> dict:
+def _get(path: str, params: dict | None = None, status_msg: str = "Fetching…") -> dict:
     """Send a GET request to the API and return the JSON response.
 
-    This is the single point of contact with the API. Every command calls
-    this instead of constructing httpx calls directly. If the API returns
-    an error, we print a helpful message and exit.
+    Shows a spinner while the request is in flight so the user knows
+    something is happening (especially important on Render cold-starts
+    which can take ~30 s). The spinner disappears automatically when
+    the request completes.
 
     Args:
-        path:   API path like "/v1/insertions" (will be joined with base URL)
-        params: Optional query parameters dict (None values are stripped)
+        path:       API path like "/v1/insertions"
+        params:     Optional query parameters (None values are stripped)
+        status_msg: Message shown next to the spinner
     """
     url = f"{_base_url()}{path}"
 
@@ -97,20 +164,35 @@ def _get(path: str, params: dict | None = None) -> dict:
         params = {k: v for k, v in params.items() if v is not None}
 
     try:
-        response = httpx.get(url, params=params, timeout=30.0)
+        # console.status() shows a spinner and disappears when the `with` block exits.
+        # It writes to stderr so stdout stays pipe-clean for BED/VCF output.
+        with console.status(f"[dim]{status_msg}[/dim]", spinner="dots"):
+            response = httpx.get(url, params=params, timeout=30.0)
     except httpx.ConnectError:
         console.print(
-            f"[red]Error:[/red] Could not connect to API at {_base_url()}\n"
-            "Is the server running? Start it with: uvicorn app.main:app --reload\n"
-            "Or set DBRIP_API_URL to point at a different server.",
-            style="red",
+            Panel(
+                f"Could not connect to the API at [bold]{_base_url()}[/bold]\n\n"
+                "Is the server running? Start it with:\n"
+                "  [cyan]uvicorn app.main:app --reload[/cyan]\n\n"
+                "Or set [bold]DBRIP_API_URL[/bold] to point at a different server.",
+                title="Connection Error",
+                border_style="red",
+                padding=(1, 2),
+            )
         )
         raise typer.Exit(code=1)
 
     # If the API returned an error (4xx or 5xx), show the detail message
     if response.status_code >= 400:
         detail = response.json().get("detail", response.text)
-        console.print(f"[red]API error ({response.status_code}):[/red] {detail}")
+        console.print(
+            Panel(
+                f"[bold]HTTP {response.status_code}[/bold] — {detail}",
+                title="API Error",
+                border_style="red",
+                padding=(0, 2),
+            )
+        )
         raise typer.Exit(code=1)
 
     return response.json()
@@ -120,25 +202,38 @@ def _get_raw(path: str, params: dict | None = None) -> httpx.Response:
     """Send a GET request and return the raw response (for file downloads).
 
     Used by the export command where we need the response body as text,
-    not parsed JSON.
+    not parsed JSON. Shows a spinner while downloading.
     """
     url = f"{_base_url()}{path}"
     if params:
         params = {k: v for k, v in params.items() if v is not None}
 
     try:
-        response = httpx.get(url, params=params, timeout=60.0)
+        with console.status("[dim]Downloading…[/dim]", spinner="dots"):
+            response = httpx.get(url, params=params, timeout=60.0)
     except httpx.ConnectError:
         console.print(
-            f"[red]Error:[/red] Could not connect to API at {_base_url()}\n"
-            "Is the server running? Start it with: uvicorn app.main:app --reload",
-            style="red",
+            Panel(
+                f"Could not connect to the API at [bold]{_base_url()}[/bold]\n\n"
+                "Is the server running? Start it with:\n"
+                "  [cyan]uvicorn app.main:app --reload[/cyan]",
+                title="Connection Error",
+                border_style="red",
+                padding=(1, 2),
+            )
         )
         raise typer.Exit(code=1)
 
     if response.status_code >= 400:
         detail = response.json().get("detail", response.text)
-        console.print(f"[red]API error ({response.status_code}):[/red] {detail}")
+        console.print(
+            Panel(
+                f"[bold]HTTP {response.status_code}[/bold] — {detail}",
+                title="API Error",
+                border_style="red",
+                padding=(0, 2),
+            )
+        )
         raise typer.Exit(code=1)
 
     return response
@@ -163,7 +258,6 @@ def _parse_region_shorthand(value: str) -> str:
         multiplier = {"K": 1_000, "M": 1_000_000}[suffix]
         return str(int(num * multiplier))
 
-    # Match numbers followed by K or M (case-insensitive)
     return re.sub(r"(\d+(?:\.\d+)?)\s*([KkMm])", _expand, value)
 
 
@@ -248,64 +342,73 @@ def search(
     )
 
     if region:
-        # Region query — use the region endpoint
         parsed = _parse_region_shorthand(region)
         path = f"/v1/insertions/region/{assembly}/{parsed}"
-        params = {**filters, "limit": limit, "offset": offset}
+        status_msg = f"Searching {parsed}…"
     else:
-        # Full database search
         path = "/v1/insertions"
-        params = {**filters, "limit": limit, "offset": offset}
+        status_msg = "Searching…"
 
-    data = _get(path, params)
+    params = {**filters, "limit": limit, "offset": offset}
+    data = _get(path, params, status_msg=status_msg)
 
     if output == "json":
-        # Machine-readable: dump raw JSON to stdout
         typer.echo(json.dumps(data, indent=2))
         return
 
-    # Human-readable table
     results = data["results"]
     total = data["total"]
 
     if not results:
-        console.print("[yellow]No results found.[/yellow]")
+        console.print(Panel("[yellow]No insertions matched your filters.[/yellow]", padding=(0, 2)))
         return
 
+    # Build the results table.
+    # box.ROUNDED gives curved corners — cleaner than the default ASCII grid.
     table = Table(
-        title=f"Insertions ({total} total, showing {len(results)})",
-        show_lines=False,
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold",
+        highlight=True,         # highlights the focused row in compatible terminals
+        title=f"[bold]{total:,} insertions[/bold] · showing {offset + 1}–{offset + len(results)}",
+        title_style="cyan",
+        caption=f"API: {_base_url()}",
+        caption_style="dim",
     )
-    table.add_column("ID", style="cyan")
-    table.add_column("Chrom")
-    table.add_column("Start", justify="right")
-    table.add_column("End", justify="right")
-    table.add_column("ME Type", style="green")
-    table.add_column("Subtype")
-    table.add_column("Variant Class")
+
+    table.add_column("ID",            style="cyan",   no_wrap=True)
+    table.add_column("Chrom",         no_wrap=True)
+    table.add_column("Start",         justify="right", no_wrap=True)
+    table.add_column("End",           justify="right", no_wrap=True)
+    table.add_column("ME Type",       no_wrap=True)
+    table.add_column("Subtype",       no_wrap=True)
+    table.add_column("Category")
+    table.add_column("Variant Class", no_wrap=True)
     table.add_column("Annotation")
 
     for r in results:
         table.add_row(
             r["id"],
             r["chrom"],
-            str(r["start"]),
-            str(r["end"]),
-            r["me_type"],
+            f"{r['start']:,}",
+            f"{r['end']:,}",
+            _me_type_text(r.get("me_type")),
             r.get("me_subtype") or "",
-            r.get("variant_class") or "",
+            r.get("me_category") or "",
+            _variant_class_text(r.get("variant_class")),
             r.get("annotation") or "",
         )
 
+    console.print()
     console.print(table)
 
-    # Show pagination hint if there are more results
+    # Pagination hint
     shown = offset + len(results)
     if shown < total:
         console.print(
-            f"\n[dim]Showing {offset + 1}–{shown} of {total}. "
-            f"Use --offset {shown} to see the next page.[/dim]"
+            f"  [dim]Next page:[/dim]  dbrip search … --offset {shown} --limit {limit}",
         )
+    console.print()
 
 
 @app.command()
@@ -321,41 +424,64 @@ def get(
 
         dbrip get A0000001 --output json
     """
-    data = _get(f"/v1/insertions/{insertion_id}")
+    data = _get(f"/v1/insertions/{insertion_id}", status_msg=f"Fetching {insertion_id}…")
 
     if output == "json":
         typer.echo(json.dumps(data, indent=2))
         return
 
-    # ── Insertion details ──
-    console.print(f"\n[bold cyan]{data['id']}[/bold cyan]")
-    console.print(f"  Assembly:       {data['assembly']}")
-    console.print(f"  Location:       {data['chrom']}:{data['start']}-{data['end']}")
-    console.print(f"  Strand:         {data.get('strand') or '.'}")
-    console.print(f"  ME Type:        {data['me_type']}")
-    console.print(f"  ME Subtype:     {data.get('me_subtype') or ''}")
-    console.print(f"  ME Category:    {data.get('me_category') or ''}")
-    console.print(f"  RIP Type:       {data.get('rip_type') or ''}")
-    console.print(f"  ME Length:      {data.get('me_length') or ''}")
-    console.print(f"  TSD:            {data.get('tsd') or ''}")
-    console.print(f"  Annotation:     {data.get('annotation') or ''}")
-    console.print(f"  Variant Class:  {data.get('variant_class') or ''}")
-    console.print(f"  Dataset:        {data.get('dataset_id') or ''}")
+    # ── Metadata table (key-value layout inside a Panel) ──
+    #
+    # A two-column table (field | value) reads much better than a wall of
+    # `console.print(f"  Key: {value}")` lines, especially when rendered
+    # in a terminal with 80+ columns.
+
+    meta = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+    meta.add_column("Field", style="dim", no_wrap=True)
+    meta.add_column("Value")
+
+    meta.add_row("Assembly",      data.get("assembly") or "")
+    meta.add_row("Location",      f"{data['chrom']}:{data['start']:,}–{data['end']:,}")
+    meta.add_row("Strand",        data.get("strand") or ".")
+    meta.add_row("ME Type",       _me_type_text(data.get("me_type")))
+    meta.add_row("ME Subtype",    data.get("me_subtype") or "")
+    meta.add_row("ME Category",   data.get("me_category") or "")
+    meta.add_row("RIP Type",      data.get("rip_type") or "")
+    meta.add_row("ME Length",     str(data.get("me_length") or ""))
+    meta.add_row("TSD",           data.get("tsd") or "")
+    meta.add_row("Annotation",    data.get("annotation") or "")
+    meta.add_row("Variant Class", _variant_class_text(data.get("variant_class")))
+    meta.add_row("Dataset",       data.get("dataset_id") or "")
+
+    console.print()
+    console.print(
+        Panel(
+            meta,
+            title=f"[bold cyan]{data['id']}[/bold cyan]",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
 
     # ── Population frequencies table ──
     populations = data.get("populations", [])
     if populations:
-        console.print()
-        freq_table = Table(title="Population Frequencies", show_lines=False)
+        freq_table = Table(
+            box=box.ROUNDED,
+            show_header=True,
+            header_style="bold",
+            title="Population Frequencies",
+            title_style="dim",
+        )
         freq_table.add_column("Population", style="cyan")
         freq_table.add_column("Allele Frequency", justify="right")
 
         for pop in populations:
-            af = pop["af"]
-            af_str = f"{af:.4f}" if af is not None else ""
-            freq_table.add_row(pop["population"], af_str)
+            freq_table.add_row(pop["population"], _af_text(pop.get("af")))
 
         console.print(freq_table)
+
+    console.print()
 
 
 @app.command()
@@ -399,18 +525,26 @@ def export(
     content = response.text
 
     if out:
-        # Write to file
         with open(out, "w") as f:
             f.write(content)
-        console.print(f"[green]Exported to {out}[/green]")
+        console.print(
+            Panel(
+                f"Saved [bold]{out}[/bold]  ({len(content.splitlines()):,} lines)",
+                border_style="green",
+                padding=(0, 2),
+            )
+        )
     else:
-        # Write to stdout (no rich formatting — keeps output clean for pipes)
+        # Write to stdout — no rich formatting so pipes (bedtools, awk) work cleanly
         sys.stdout.write(content)
 
 
 @app.command()
 def stats(
-    by: str = typer.Option("me_type", "--by", "-b", help="Field to group by: me_type, chrom, variant_class, annotation, me_category, dataset_id."),
+    by: str = typer.Option(
+        "me_type", "--by", "-b",
+        help="Field to group by: me_type, chrom, variant_class, annotation, me_category, dataset_id.",
+    ),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table or json."),
 ):
     """Show summary counts grouped by a field.
@@ -423,21 +557,38 @@ def stats(
 
         dbrip stats --by variant_class --output json
     """
-    data = _get("/v1/stats", {"by": by})
+    data = _get("/v1/stats", {"by": by}, status_msg=f"Counting by {by}…")
 
     if output == "json":
         typer.echo(json.dumps(data, indent=2))
         return
 
     entries = data["entries"]
-    table = Table(title=f"Stats by {data['group_by']}", show_lines=False)
-    table.add_column("Label", style="cyan")
-    table.add_column("Count", justify="right")
+    total = sum(e["count"] for e in entries)
+
+    table = Table(
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold",
+        title=f"Stats by [bold]{data['group_by']}[/bold]",
+        title_style="cyan",
+    )
+    table.add_column("Label",   style="cyan")
+    table.add_column("Count",   justify="right")
+    table.add_column("% Total", justify="right", style="dim")
 
     for entry in entries:
-        table.add_row(entry["label"], str(entry["count"]))
+        count = entry["count"]
+        pct = f"{100 * count / total:.1f}%" if total else ""
+        if by == "me_type":
+            label_cell = _me_type_text(entry["label"])
+        else:
+            label_cell = entry["label"]
+        table.add_row(label_cell, f"{count:,}", pct)
 
+    console.print()
     console.print(table)
+    console.print(f"  [dim]Total: {total:,}[/dim]\n")
 
 
 @app.command()
@@ -455,35 +606,44 @@ def datasets(
 
         dbrip datasets --output json
     """
-    data = _get("/v1/datasets")
+    data = _get("/v1/datasets", status_msg="Loading datasets…")
 
     if output == "json":
         typer.echo(json.dumps(data, indent=2))
         return
 
     if not data:
-        console.print("[yellow]No datasets loaded.[/yellow]")
+        console.print(Panel("[yellow]No datasets loaded.[/yellow]", padding=(0, 2)))
         return
 
-    table = Table(title="Loaded Datasets", show_lines=False)
-    table.add_column("ID", style="cyan")
-    table.add_column("Version")
+    table = Table(
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold",
+        title="Loaded Datasets",
+        title_style="cyan",
+    )
+    table.add_column("ID",         style="cyan", no_wrap=True)
+    table.add_column("Version",    no_wrap=True)
     table.add_column("Label")
-    table.add_column("Assembly")
-    table.add_column("Rows", justify="right")
-    table.add_column("Loaded At")
+    table.add_column("Assembly",   no_wrap=True)
+    table.add_column("Rows",       justify="right")
+    table.add_column("Loaded At",  no_wrap=True)
 
     for ds in data:
+        row_count = ds.get("row_count")
         table.add_row(
             ds["id"],
             ds.get("version") or "",
             ds.get("label") or "",
             ds.get("assembly") or "",
-            str(ds.get("row_count") or ""),
+            f"{row_count:,}" if row_count else "",
             ds.get("loaded_at") or "",
         )
 
+    console.print()
     console.print(table)
+    console.print()
 
 
 # ── Entry point ──────────────────────────────────────────────────────────
