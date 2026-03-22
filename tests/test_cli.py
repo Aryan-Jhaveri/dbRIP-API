@@ -170,7 +170,7 @@ class TestSearchCommand:
         assert result.exit_code == 0
         assert "A0000001" in result.output
         assert "A0000002" in result.output
-        assert "2 total" in result.output
+        assert "2 insertions" in result.output
 
     @patch("cli.dbrip.httpx.get")
     def test_search_json_output(self, mock_get):
@@ -198,7 +198,7 @@ class TestSearchCommand:
         mock_get.return_value = _mock_response({"total": 0, "limit": 50, "offset": 0, "results": []})
         result = runner.invoke(app, ["search"])
         assert result.exit_code == 0
-        assert "No results" in result.output
+        assert "No insertions matched" in result.output
 
     @patch("cli.dbrip.httpx.get")
     def test_search_pagination_hint(self, mock_get):
@@ -270,7 +270,7 @@ class TestExportCommand:
         outfile = str(tmp_path / "test.bed")
         result = runner.invoke(app, ["export", "--format", "bed", "--out", outfile])
         assert result.exit_code == 0
-        assert "Exported to" in result.output
+        assert "Saved" in result.output
         with open(outfile) as f:
             assert "chr1\t758507" in f.read()
 
@@ -287,7 +287,7 @@ class TestStatsCommand:
         result = runner.invoke(app, ["stats"])
         assert result.exit_code == 0
         assert "ALU" in result.output
-        assert "33709" in result.output
+        assert "33,709" in result.output
 
     @patch("cli.dbrip.httpx.get")
     def test_stats_json_output(self, mock_get):
@@ -312,7 +312,7 @@ class TestDatasetsCommand:
         result = runner.invoke(app, ["datasets"])
         assert result.exit_code == 0
         assert "dbrip_v1" in result.output
-        assert "44984" in result.output
+        assert "44,984" in result.output
 
     @patch("cli.dbrip.httpx.get")
     def test_datasets_json_output(self, mock_get):
